@@ -1,3 +1,4 @@
+import { setupIndex } from './index-store.ts';
 import { DatabaseSync } from 'node:sqlite';
 import type { Bookmark, BookmarkEdit, Post, ReviewState } from '../shared/contracts.ts';
 
@@ -15,6 +16,7 @@ export function library(path: string) {
       state TEXT NOT NULL DEFAULT 'inbox', tags TEXT NOT NULL DEFAULT '[]', UNIQUE(owner,id));
     CREATE TABLE IF NOT EXISTS cursors(owner TEXT PRIMARY KEY, cursor TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS sessions(id TEXT PRIMARY KEY, owner TEXT NOT NULL, name TEXT NOT NULL, expires INTEGER NOT NULL);`);
+  setupIndex(db);
   const save = db.prepare('INSERT INTO bookmarks(owner,id,content) VALUES(?,?,?) ON CONFLICT(owner,id) DO UPDATE SET content=excluded.content');
   return {
     db,
