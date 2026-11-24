@@ -1,3 +1,4 @@
+import { reconcileLinks } from './linked-sources.ts';
 import { DatabaseSync } from 'node:sqlite';
 import type { Post, Bookmark } from '../shared/contracts.ts';
 import type { PhotoJob, ReaderData } from '../shared/discovery.ts';
@@ -5,8 +6,8 @@ import type { PhotoJob, ReaderData } from '../shared/discovery.ts';
 export function setupIndex(db: DatabaseSync) {
   db.exec('PRAGMA foreign_keys=ON');
   const version = Number(db.prepare('PRAGMA user_version').get()?.user_version);
-  if (version > 2) throw new Error('This library needs a newer version of Margin.');
-  if (version === 2) return;
+  if (version > 3) throw new Error('This library needs a newer version of Margin.');
+  if (version === 3) return;
   if (version === 0)
     db.exec(`BEGIN;
     CREATE TABLE dirty(book INTEGER PRIMARY KEY REFERENCES bookmarks(seq) ON DELETE CASCADE);
@@ -34,10 +35,17 @@ export function setupIndex(db: DatabaseSync) {
     CREATE TRIGGER index_changed AFTER UPDATE OF content,tags ON bookmarks BEGIN INSERT INTO dirty SELECT new.seq WHERE NOT EXISTS(SELECT 1 FROM dirty WHERE book=new.seq); END;
     INSERT INTO dirty SELECT seq FROM bookmarks;
     PRAGMA user_version=1; COMMIT;`);
-  db.exec(`BEGIN;
+  if(version<2) db.exec(`BEGIN;
     ALTER TABLE photos ADD COLUMN digest TEXT;
     CREATE INDEX photos_digest ON photos(digest) WHERE digest IS NOT NULL;
     PRAGMA user_version=2; COMMIT;`);
+  db.exec(`BEGIN;
+    CREATE TABLE linked_sources(lid INTEGER PRIMARY KEY, book INTEGER NOT NULL REFERENCES bookmarks(seq) ON DELETE CASCADE,
+      href TEXT NOT NULL,target TEXT NOT NULL DEFAULT '',url TEXT NOT NULL DEFAULT '',author TEXT NOT NULL DEFAULT '',
+      body TEXT NOT NULL DEFAULT '',status TEXT NOT NULL DEFAULT 'pending',UNIQUE(book,href));
+    CREATE INDEX linked_pending ON linked_sources(status,book);
+    INSERT OR IGNORE INTO dirty SELECT seq FROM bookmarks;
+    PRAGMA user_version=3; COMMIT;`);
 }
 
 // A long screenshot or post can contribute several results, each traceable to one attachment.
@@ -77,6 +85,14 @@ export function syncText(db: DatabaseSync) {
         const parts=source==='quote'?p.context?.quotes:p.context?.thread;
         parts?.forEach((part,slot)=>passage(source,slot,[part.author,'@'+part.handle,part.body,...part.media.map(m=>m.alt||'')].join(' ')));
       }
+      reconcileLinks(db,book,p);
+      const relatedIds=new Set([...(p.context?.quotes||[]),...(p.context?.thread||[])].map(part=>part.id));
+      for(const l of db.prepare("SELECT lid,target,author,body FROM linked_sources WHERE book=? AND body<>'' ORDER BY lid").all(book)){
+        const target=String(l.target);
+        if(relatedIds.has(target))continue;
+        relatedIds.add(target);
+        passage('linked',Number(l.lid),String(l.author)+' '+String(l.body));
+      }
       for (const [slot, m] of p.media.entries()) {
         if (m.alt && !/^(image|photo)$/i.test(m.alt)) passage('alt', slot, m.alt);
         if (m.type === 'photo' && m.src) {
@@ -105,6 +121,7 @@ export function readPost(db: DatabaseSync, owner: string, id: string): ReaderDat
   if (!b) throw Object.assign(new Error('Bookmark not found.'), { status: 404 });
   return {
     post: { ...JSON.parse(String(b.content)), state: b.state, tags: JSON.parse(String(b.tags)) } as Bookmark,
+    linked: db.prepare("SELECT lid AS slot,target AS id,url,author,body FROM linked_sources WHERE book=? AND body<>'' ORDER BY lid").all(b.seq) as unknown as ReaderData['linked'],
     collections: db
       .prepare('SELECT collection FROM members WHERE book=?')
       .all(b.seq)

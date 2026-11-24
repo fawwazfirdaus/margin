@@ -14,7 +14,7 @@ export interface SearchSpec {
   filters: Filters;
 }
 export interface Evidence {
-  source: 'post' | 'alt' | 'image' | 'quote' | 'thread';
+  source: 'post' | 'alt' | 'image' | 'quote' | 'thread' | 'linked';
   postId?: string;
   author?: string;
   slot: number;
@@ -62,6 +62,7 @@ export interface PhotoJob {
 }
 export interface ReaderData {
   post: Bookmark;
+  linked: {slot:number;id:string;url:string;author:string;body:string}[];
   collections: number[];
   photos: { slot: number; words: WordBox[]; text: string }[];
 }

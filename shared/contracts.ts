@@ -63,4 +63,4 @@ export interface SuccessResponse { ok: true }
 export type Preview =
   | { kind: 'saved'; url: string; post: Post }
   | { kind: 'public'; url: string; author: string; html: string }
-  | { kind: 'external' | 'self' | 'unavailable'; url: string; message: string };
+  | { kind: 'external' | 'self' | 'unavailable'; url: string; message: string; retryable?: boolean };

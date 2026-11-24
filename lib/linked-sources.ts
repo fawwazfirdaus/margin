@@ -1,0 +1,112 @@
+import type { DatabaseSync } from 'node:sqlite';
+import { parseFragment, type DefaultTreeAdapterTypes as Tree } from 'parse5';
+import type { Post, Preview } from '../shared/contracts.ts';
+import { textLinks, shortLink, xPost } from '../shared/post-links.ts';
+
+export function sourceLinks(post: Post) {
+  const allowed = new Map<string, string>();
+  for (const part of [post, ...(post.context?.quotes || []), ...(post.context?.thread || [])]) {
+    for (const l of textLinks(part.body)) allowed.set(l.href, l.href);
+    for (const l of part.links || []) {
+      allowed.set(l.url, l.expanded);
+      allowed.set(l.expanded, l.expanded);
+    }
+    if (part.quoteId) {
+      const url = 'https://x.com/i/web/status/' + part.quoteId;
+      allowed.set(url, url);
+    }
+  }
+  for (const value of [...allowed.values()]) {
+    const target = xPost(value);
+    if (target) allowed.set(target.url, target.url);
+  }
+  return allowed;
+}
+export function candidate(bookmark: string, href: string) {
+  const target = xPost(href);
+  return target && target.id !== bookmark ? target.url : shortLink(href) ? href : undefined;
+}
+
+// Only the paragraphs inside the embed's blockquote are source text.
+// Attribution, executable elements, and surrounding widget markup stay out of the index.
+export function embeddedBody(html: string) {
+  function paragraphs(node: Tree.Node, inside = false): string[] {
+    if ('tagName' in node) {
+      if (['script', 'style', 'iframe', 'object', 'template'].includes(node.tagName)) return [];
+      if (node.tagName === 'blockquote') inside = true;
+      if (inside && node.tagName === 'p') return [text(node)];
+    }
+    return 'childNodes' in node ? node.childNodes.flatMap((n) => paragraphs(n, inside)) : [];
+  }
+  function text(node: Tree.Node): string {
+    if (node.nodeName === '#text' && 'value' in node) return node.value;
+    if ('tagName' in node) {
+      if (node.tagName === 'br') return '\n';
+      if (['script', 'style', 'iframe', 'object', 'template'].includes(node.tagName)) return '';
+    }
+    return 'childNodes' in node ? node.childNodes.map(text).join('') : '';
+  }
+  return paragraphs(parseFragment(html)).join('\n').trim();
+}
+
+export function reconcileLinks(db: DatabaseSync, book: number, post: Post) {
+  const wanted = new Set(
+    [...sourceLinks(post).values()].map((h) => candidate(post.id, h)).filter((h) => h !== undefined)
+  );
+  const insert = db.prepare('INSERT INTO linked_sources(book,href) VALUES(?,?) ON CONFLICT DO NOTHING');
+  for (const href of wanted) insert.run(book, href);
+  const remove = db.prepare('DELETE FROM linked_sources WHERE lid=?');
+  for (const row of db.prepare('SELECT lid,href FROM linked_sources WHERE book=?').all(book)) {
+    if (!wanted.has(String(row.href))) remove.run(row.lid);
+  }
+}
+
+// Re-check the source after the network request: a bookmark can be refreshed or removed in flight.
+export function recordPreview(
+  db: DatabaseSync,
+  owner: string,
+  book: number,
+  href: string,
+  expected: string,
+  result: Preview
+) {
+  const row = db.prepare('SELECT id,content FROM bookmarks WHERE owner=? AND seq=?').get(owner, book);
+  if (!row) return;
+  const mapped = sourceLinks(JSON.parse(String(row.content))).get(href);
+  const key = mapped && candidate(String(row.id), mapped);
+  if (!key || mapped !== expected) return;
+  const target = xPost(result.url);
+  const body =
+    result.kind === 'public' ? embeddedBody(result.html) : result.kind === 'saved' ? result.post.body.trim() : '';
+  const author = result.kind === 'public' ? result.author : result.kind === 'saved' ? result.post.author : '';
+  const transient = result.kind === 'unavailable' && result.retryable;
+  db.exec('BEGIN');
+  try {
+    if (transient) {
+      db.prepare(
+        "INSERT INTO linked_sources(book,href,status) VALUES(?,?,'failed') ON CONFLICT(book,href) DO UPDATE SET status='failed'"
+      ).run(book, key);
+    } else {
+      const status = target && body ? 'indexed' : result.kind === 'unavailable' ? 'unavailable' : 'skipped';
+      db.prepare(
+        `INSERT INTO linked_sources(book,href,target,url,author,body,status) VALUES(?,?,?,?,?,?,?)
+        ON CONFLICT(book,href) DO UPDATE SET target=excluded.target,url=excluded.url,author=excluded.author,body=excluded.body,status=excluded.status`
+      ).run(book, key, target?.id || '', target?.url || '', author, body, status);
+      // Invalidate any aliases of a post X has explicitly stopped making available.
+      if (target && result.kind === 'unavailable') {
+        db.prepare(
+          `INSERT OR IGNORE INTO dirty SELECT l.book FROM linked_sources l JOIN bookmarks b ON b.seq=l.book
+          WHERE b.owner=? AND l.target=?`
+        ).run(owner, target.id);
+        db.prepare(
+          "UPDATE linked_sources SET status='unavailable',body='',author='' WHERE target=? AND book IN(SELECT seq FROM bookmarks WHERE owner=?)"
+        ).run(target.id, owner);
+      }
+    }
+    db.prepare('INSERT OR IGNORE INTO dirty VALUES(?)').run(book);
+    db.exec('COMMIT');
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  }
+}
