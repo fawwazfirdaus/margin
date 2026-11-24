@@ -22,6 +22,7 @@
   },
   "dependencies": {
     "@tesseract.js-data/eng": "1.0.0",
+    "parse5": "8.1.1",
     "tesseract.js": "7.0.0"
   }
 }
