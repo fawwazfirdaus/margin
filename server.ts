@@ -1,4 +1,5 @@
-import { createServer, type IncomingMessage } from 'node:http';
+import { discovery, jsonBody } from './lib/discovery-api.ts';
+import { createServer } from 'node:http';
 import { randomBytes, createHash } from 'node:crypto';
 import { readFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -29,15 +30,6 @@ const random = () => randomBytes(32).toString('base64url');
 const hash = (s: string) => createHash('sha256').update(s).digest('hex');
 const fail = (status: number, message: string) => Object.assign(new Error(message), { status });
 
-async function jsonBody(req: IncomingMessage): Promise<unknown> {
-  let data = '';
-  for await (const chunk of req) {
-    data += chunk;
-    if (Buffer.byteLength(data) > 10000) throw fail(413,'Request too large.');
-  }
-  try { return JSON.parse(data); } catch { throw fail(400,'Invalid JSON.'); }
-}
-
 function parseBookmarkEdit(value: unknown): BookmarkEdit {
   if (!value || typeof value !== 'object') throw fail(400,'Expected bookmark edits.');
   const state = 'state' in value ? value.state : undefined;
@@ -52,12 +44,13 @@ function parseBookmarkEdit(value: unknown): BookmarkEdit {
   return {state, tags};
 }
 
-export function makeServer(config: AppConfig, lib: ReturnType<typeof library>, transport: Transport = fetch) {
+export function makeServer(config: AppConfig, lib: ReturnType<typeof library>, transport: Transport = fetch, liveModels = false) {
   const pending = new Map<string, PendingAuthorization>();
   const tokens = new Map<string, XAccount>();
   const syncing = new Set<string>();
   const {db} = lib;
   const ttl = 30 * 86400000;
+  const explore=discovery(db,liveModels);
   return createServer(async (req,res) => {
     const send = (status: number, body: Reply) => {
       res.writeHead(status, { 'Content-Type':'application/json' });
@@ -110,11 +103,12 @@ export function makeServer(config: AppConfig, lib: ReturnType<typeof library>, t
           lib.savePage(owner, samples, '');
           for (const p of samples) lib.edit(owner,p.id,{tags:p.tags});
         }
-        return send(200,{ posts:lib.list(session.owner), name:session.name, demo:session.owner.startsWith('demo-'),
+        return send(200,{ posts:url.searchParams.has('summary') ? [] : lib.list(session.owner), name:session.name, demo:session.owner.startsWith('demo-'),
           configured:Boolean(config.clientId), connected:tokens.has(session.id), canRemove:Boolean(tokens.get(session.id)?.canRemove), resume:Boolean(lib.cursor(session.owner)),
           callback:config.origin+'/auth/callback' });
       }
       if (!session) throw fail(401,'Open your library and try again.');
+      if(path.startsWith('/api/discover/')) return await explore.dispatch(req,res,session.owner,path,url);
       if (req.method === 'POST' && ['/auth/start','/auth/manage'].includes(path)) {
         if (!config.clientId) throw fail(409,'Configure an X OAuth client first.');
         const manage = path === '/auth/manage';
@@ -194,7 +188,7 @@ export function makeServer(config: AppConfig, lib: ReturnType<typeof library>, t
         ? error.status : 502;
       send(status,{error:errorMessage(error)});
     }
-  });
+  }).on('close',explore.close);
 }
 
 if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
@@ -203,6 +197,6 @@ if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) 
   const directory = process.env.MARGIN_DATA_DIR || fileURLToPath(new URL('./data/',import.meta.url));
   await mkdir(directory,{recursive:true,mode:0o700});
   const server = makeServer({origin,clientId:process.env.X_CLIENT_ID,secret:process.env.X_CLIENT_SECRET},
-    library(join(directory,'margin.sqlite')));
+    library(join(directory,'margin.sqlite')),fetch,true);
   server.listen(port,'127.0.0.1',()=>console.log('Margin is ready at '+origin));
 }
