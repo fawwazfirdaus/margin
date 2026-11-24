@@ -283,6 +283,7 @@ by('ask-open').onclick = () => {
   by('ask-scope').textContent =
     'Searching ' + by('title').textContent + (spec.q ? ' for “' + spec.q + '”' : '') + ' with the current filters.';
   by('answer').replaceChildren();
+  by<HTMLInputElement>('hosted').checked = false;
   by<HTMLDialogElement>('ask').showModal();
   void coverage().catch(problem);
 };
@@ -298,7 +299,17 @@ by('ask-form').onsubmit = async (e) => {
       question: by<HTMLTextAreaElement>('question').value,
       hosted: by<HTMLInputElement>('hosted').checked
     });
-    box.replaceChildren(el('p', 'answer-copy', ans.text));
+    const copy = el('p', 'answer-copy');
+    for (const piece of ans.text.split(/(\[\d+\])/g)) {
+      const number = /^\[(\d+)\]$/.exec(piece);
+      const cited = number && ans.citations[Number(number[1]) - 1];
+      if (cited) {
+        const link = action(piece, () => void reading.open(cited), 'inline-citation');
+        link.ariaLabel = 'Read source ' + number[1];
+        copy.append(link);
+      } else copy.append(piece);
+    }
+    box.replaceChildren(copy);
     ans.citations.forEach((h, i) => {
       const b = action(
         '[' + (i + 1) + '] ' + h.author + ' · ' + (h.evidence.slot < 0 ? 'Post' : 'Image ' + (h.evidence.slot + 1)),

@@ -85,7 +85,7 @@ export function reader(
         img.alt = m.alt || 'Bookmarked image';
         img.src = m.src;
         frame.append(img);
-        if (photo && hit.evidence.slot === slot) {
+        if (photo && hit.evidence.slot === slot && hit.evidence.source === 'image') {
           const overlay = el('canvas', 'overlay');
           overlay.setAttribute('aria-hidden', 'true');
           frame.append(overlay);
@@ -96,16 +96,26 @@ export function reader(
             if (!ctx) return;
             const terms = hit.terms.filter(Boolean);
             const normalized = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
-            for (const [w, x, y, r, b] of photo.words)
-              if (terms.some((t) => normalized(w).includes(t))) {
-                ctx.fillStyle = 'rgba(255,202,47,.43)';
-                ctx.fillRect(
-                  x * overlay.width,
-                  y * overlay.height,
-                  (r - x) * overlay.width,
-                  (b - y) * overlay.height
-                );
+            const exact = photo.words.filter(([word]) => terms.some((t) => normalized(word).includes(t)));
+            let boxes = exact;
+            if (!exact.length) {
+              // A paraphrase may share no query words. Locate the source passage in OCR reading order.
+              const quote = normalized(hit.evidence.text);
+              const words = photo.words.map(([word]) => normalized(word));
+              const start = quote ? words.join('').indexOf(quote) : -1;
+              if (start >= 0) {
+                let cursor = 0;
+                boxes = photo.words.filter((_, idx) => {
+                  const left = cursor;
+                  cursor += words[idx].length;
+                  return cursor > start && left < start + quote.length;
+                });
               }
+            }
+            for (const [, x, y, r, b] of boxes) {
+              ctx.fillStyle = 'rgba(255,202,47,.43)';
+              ctx.fillRect(x * overlay.width, y * overlay.height, (r - x) * overlay.width, (b - y) * overlay.height);
+            }
           };
           img.onload = paint;
           if (img.complete) paint();
