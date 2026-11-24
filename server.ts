@@ -1,5 +1,6 @@
+import { linkPreview } from './lib/link-preview.ts';
 import { contextRequests, enrichPost, preserveContext } from './lib/post-context.ts';
-import type { Post } from './shared/contracts.ts';
+import type { Post, Preview } from './shared/contracts.ts';
 import { scriptAsset } from './lib/assets.ts';
 import { discovery, jsonBody } from './lib/discovery-api.ts';
 import { createServer } from 'node:http';
@@ -15,7 +16,7 @@ import type {
   AuthorizationResponse, BookmarkEdit, LibraryResponse, SuccessResponse, SyncResponse
 } from './shared/contracts.ts';
 
-type Reply = LibraryResponse | AuthorizationResponse | SyncResponse | SuccessResponse | { error: string } | {processed:number;pending:number;warning?:string};
+type Reply = Preview | LibraryResponse | AuthorizationResponse | SyncResponse | SuccessResponse | { error: string } | {processed:number;pending:number;warning?:string};
 type Session = { id: string; owner: string; name: string };
 type PendingAuthorization = { state: string; verifier: string; expires: number; owner?: string };
 
@@ -117,6 +118,11 @@ export function makeServer(config: AppConfig, lib: ReturnType<typeof library>, t
           callback:config.origin+'/auth/callback' });
       }
       if (!session) throw fail(401,'Open your library and try again.');
+      if(req.method==='POST' && path==='/api/link-preview'){
+        const v=await jsonBody(req);
+        if(!v||typeof v!=='object'||!('id' in v)||typeof v.id!=='string'||!('href' in v)||typeof v.href!=='string')throw fail(400,'Expected a bookmark and a saved link.');
+        return send(200,await linkPreview(db,session.owner,v.id,v.href));
+      }
       if(path.startsWith('/api/discover/')) return await explore.dispatch(req,res,session.owner,path,url);
       if (req.method === 'POST' && ['/auth/start','/auth/manage'].includes(path)) {
         if (!config.clientId) throw fail(409,'Configure an X OAuth client first.');
