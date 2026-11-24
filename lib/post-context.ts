@@ -1,6 +1,24 @@
 import type { Post, PostPart } from '../shared/contracts.ts';
 import { contextFields, fetchPost, normalizePage, request, type XPage, type XAccount, type Transport } from './x.ts';
 
+// Shared only within one import operation for one authenticated account.
+export function contextRequests(transport: Transport): Transport {
+  const responses = new Map<string, string>();
+  let blocked = 0;
+  return async (url, options) => {
+    const known = responses.get(url);
+    if (known !== undefined) return new Response(known);
+    if (blocked) return new Response(null, {status: blocked});
+    const response = await transport(url, options);
+    if ([401, 402, 429].includes(response.status)) blocked = response.status;
+    if (!response.ok) return response;
+    const body = await response.text();
+    if (responses.size >= 128) responses.delete(responses.keys().next().value!);
+    responses.set(url, body);
+    return new Response(body);
+  };
+}
+
 function plain(post: Post): PostPart {
   const { context, fromTimeline, ...part } = post;
   return part;
@@ -109,17 +127,21 @@ export async function enrichPost(seed: Post, user: XAccount, transport: Transpor
     const id = ids[i];
     if (visited.has(id) || id === seed.id) continue;
     visited.add(id);
-    try {
-      let q = quotes.get(id) ?? candidates.get(id);
-      if (!q) {
+    let q = quotes.get(id) ?? candidates.get(id);
+    if (!q || !q.handle || q.media.some(m => m.type === 'unavailable')) {
+      try {
         const fetched = await fetchPost(user, id, transport);
         remember(fetched);
         q = plain(fetched);
+      } catch (e) {
+        const warning = e instanceof Error ? e.message : 'Quoted post unavailable.';
+        warnings.add(warning);
+        if (/HTTP (403|404|410)/.test(warning)) q = undefined;
       }
+    }
+    if (q) {
       ordered.push(q);
       if (q.quoteId) ids.push(q.quoteId);
-    } catch (e) {
-      warnings.add(e instanceof Error ? e.message : 'Quoted post unavailable.');
     }
   }
   return {
@@ -128,9 +150,9 @@ export async function enrichPost(seed: Post, user: XAccount, transport: Transpor
   };
 }
 
-// A transient rate limit or unavailable quote must not erase previously loaded context.
+// Retain previous context across transient failures, but respect a fresh access denial.
 export function preserveContext(post: Post, previous?: Post): Post {
-  if (!post.context?.warning || !previous?.context) return post;
+  if (!post.context?.warning || !previous?.context || /HTTP (403|404|410)/.test(post.context.warning)) return post;
   const thread = new Map<string, PostPart>();
   if (previous.conversationId === post.conversationId) {
     for (const p of previous.context.thread) thread.set(p.id, p);

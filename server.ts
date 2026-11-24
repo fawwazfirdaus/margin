@@ -1,4 +1,4 @@
-import { enrichPost, preserveContext } from './lib/post-context.ts';
+import { contextRequests, enrichPost, preserveContext } from './lib/post-context.ts';
 import type { Post } from './shared/contracts.ts';
 import { scriptAsset } from './lib/assets.ts';
 import { discovery, jsonBody } from './lib/discovery-api.ts';
@@ -157,9 +157,10 @@ export function makeServer(config: AppConfig, lib: ReturnType<typeof library>, t
           const page = await fetchPage(user,cursor,transport);
           if (cursor && cursor === page.next) throw fail(502,'X repeated a page. Try importing later.');
           const posts:Post[]=[];
+          const contextTransport=contextRequests(transport);
           for(const p of page.posts){
             const old=db.prepare('SELECT content FROM bookmarks WHERE owner=? AND id=?').get(session.owner,p.id);
-            const full=await enrichPost(p,user,transport);
+            const full=await enrichPost(p,user,contextTransport);
             posts.push(preserveContext(full,old?JSON.parse(String(old.content)):undefined));
           }
           const added = lib.savePage(session.owner,posts,page.next);
@@ -177,11 +178,12 @@ export function makeServer(config: AppConfig, lib: ReturnType<typeof library>, t
         syncing.add(session.owner);
         const pending="owner=? AND json_extract(content,'$.context.checked') IS NULL";
         let processed=0,warning='';
+        const contextTransport=contextRequests(transport);
         try{
           const rows=db.prepare('SELECT id,content FROM bookmarks WHERE '+pending+' ORDER BY seq LIMIT 5').all(session.owner);
           for(const row of rows){
             try{
-              const post=await enrichPost(await fetchPost(user,String(row.id),transport),user,transport);
+              const post=await enrichPost(await fetchPost(user,String(row.id),contextTransport),user,contextTransport);
               const merged=preserveContext(post,JSON.parse(String(row.content)));
               db.prepare('UPDATE bookmarks SET content=? WHERE owner=? AND id=?').run(JSON.stringify(merged),session.owner,row.id);
               processed++;warning=merged.context?.warning||'';

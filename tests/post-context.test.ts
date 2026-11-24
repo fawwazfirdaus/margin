@@ -79,7 +79,7 @@ test('collects author thread across pages, looks up the missing root, follows ne
   } finally {
     lib.db.close();
   }
-  const partial = await enrichPost(seed, user, async () => Response.json({}, { status: 403 }));
+  const partial = await enrichPost(seed, user, async () => Response.json({}, { status: 429 }));
   assert.equal(partial.context?.checked, false);
   assert.equal(preserveContext(partial, full).context?.quotes.length, 2);
 });
