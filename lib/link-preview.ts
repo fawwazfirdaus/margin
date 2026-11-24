@@ -1,6 +1,7 @@
+import { recordPreview, sourceLinks } from './linked-sources.ts';
 import type { DatabaseSync } from 'node:sqlite';
 import type { Post, Preview } from '../shared/contracts.ts';
-import { shortLink, textLinks, xPost } from '../shared/post-links.ts';
+import { shortLink, xPost } from '../shared/post-links.ts';
 
 export async function linkPreview(
   db: DatabaseSync,
@@ -9,23 +10,23 @@ export async function linkPreview(
   href: string,
   transport: typeof fetch = fetch
 ): Promise<Preview> {
-  const row = db.prepare('SELECT content FROM bookmarks WHERE owner=? AND id=?').get(owner, bookmark);
+  const row = db.prepare('SELECT seq,content FROM bookmarks WHERE owner=? AND id=?').get(owner, bookmark);
   if (!row) throw Object.assign(Error('Bookmark not found.'), { status: 404 });
   const post = JSON.parse(String(row.content)) as Post;
+  const result = await resolveLink(db, owner, post, href, transport);
+  recordPreview(db, owner, Number(row.seq), href, sourceLinks(post).get(href)!, result);
+  return result;
+}
+async function resolveLink(
+  db: DatabaseSync,
+  owner: string,
+  post: Post,
+  href: string,
+  transport: typeof fetch
+): Promise<Preview> {
+  const bookmark = post.id;
   const parts = [post, ...(post.context?.quotes || []), ...(post.context?.thread || [])];
-  const allowed = new Map<string, string>();
-  for (const part of parts) {
-    for (const l of textLinks(part.body)) allowed.set(l.href, l.href);
-    for (const l of part.links || []) {
-      allowed.set(l.url, l.expanded);
-      allowed.set(l.expanded, l.expanded);
-    }
-    if (part.quoteId) {
-      const u = 'https://x.com/i/web/status/' + part.quoteId;
-      allowed.set(u, u);
-    }
-  }
-  let url = allowed.get(href);
+  let url = sourceLinks(post).get(href);
   if (!url) throw Object.assign(Error('Link not found on this bookmark.'), { status: 404 });
   if (shortLink(url)) {
     // Read only X's redirect. Never fetch an arbitrary destination from the server.
@@ -37,7 +38,12 @@ export async function linkPreview(
     await res.body?.cancel();
     const location = res.headers.get('location');
     if (res.status < 300 || res.status >= 400 || !location)
-      return { kind: 'unavailable', url, message: 'The short link has no public preview.' };
+      return {
+        kind: 'unavailable',
+        url,
+        retryable: res.status === 429 || res.status >= 500,
+        message: 'The short link has no public preview.'
+      };
     try {
       const dest = new URL(location, url);
       if (!['http:', 'https:'].includes(dest.protocol) || dest.username || dest.password) throw Error();
@@ -63,6 +69,7 @@ export async function linkPreview(
     return {
       kind: 'unavailable',
       url: target.url,
+      retryable: res.status !== 403 && res.status !== 404 && res.status !== 410,
       message:
         res.status === 403 || res.status === 404
           ? 'X does not offer a public preview for this post.'
@@ -72,4 +79,75 @@ export async function linkPreview(
   if (data.type !== 'rich' || typeof data.html !== 'string')
     return { kind: 'unavailable', url: target.url, message: 'X returned no post preview.' };
   return { kind: 'public', url: target.url, author: data.author_name || 'X post', html: data.html };
+}
+
+// Small resumable batches use only URLs present on this owner's bookmarks.
+async function scanBatch(db: DatabaseSync, owner: string, includeShort: boolean, transport: typeof fetch = fetch) {
+  const filter = includeShort ? '' : " AND l.href NOT LIKE 'https://t.co/%' AND l.href NOT LIKE 'http://t.co/%'";
+  const scope =
+    " FROM linked_sources l JOIN bookmarks b ON b.seq=l.book WHERE b.owner=? AND l.status='pending'" + filter;
+  const jobs = db.prepare('SELECT l.lid,l.href,b.id' + scope + ' ORDER BY l.lid LIMIT 12').all(owner);
+  let checked = 0,
+    indexed = 0,
+    paused = false;
+  for (const job of jobs) {
+    try {
+      const result = await linkPreview(db, owner, String(job.id), String(job.href), transport);
+      checked++;
+      const row = db.prepare('SELECT status FROM linked_sources WHERE lid=?').get(job.lid);
+      if (row?.status === 'indexed') indexed++;
+      if (result.kind === 'unavailable' && result.retryable) {
+        paused = true;
+        break;
+      }
+    } catch {
+      db.prepare("UPDATE linked_sources SET status='failed' WHERE lid=? AND status='pending'").run(job.lid);
+      checked++;
+    }
+  }
+  return { checked, indexed, remaining: Number(db.prepare('SELECT count(*) n' + scope).get(owner)?.n), paused };
+}
+
+const activeScans = new WeakMap<DatabaseSync, Set<string>>();
+export async function scanLinkedPosts(
+  db: DatabaseSync,
+  owner: string,
+  includeShort: boolean,
+  transport: typeof fetch = fetch
+) {
+  const active = activeScans.get(db) ?? new Set<string>();
+  if (active.has(owner))
+    throw Object.assign(Error('Link indexing is already running. Try again shortly.'), { status: 409 });
+  activeScans.set(db, active);
+  active.add(owner);
+  try {
+    return await scanBatch(db, owner, includeShort, transport);
+  } finally {
+    active.delete(owner);
+  }
+}
+
+// Direct post links can be indexed without browsing arbitrary short-link destinations.
+export function directLinkWorker(db: DatabaseSync) {
+  let running = false,
+    backoffUntil = 0;
+  const timer = setInterval(async () => {
+    if (running || Date.now() < backoffUntil) return;
+    running = true;
+    try {
+      const next = db
+        .prepare(
+          `SELECT b.owner FROM linked_sources l JOIN bookmarks b ON b.seq=l.book
+        WHERE l.status='pending' AND l.href LIKE 'https://x.com/%' ORDER BY lid LIMIT 1`
+        )
+        .get();
+      if (next && (await scanLinkedPosts(db, String(next.owner), false)).paused) backoffUntil = Date.now() + 60000;
+    } catch {
+      backoffUntil = Date.now() + 60000;
+    } finally {
+      running = false;
+    }
+  }, 10000);
+  timer.unref();
+  return () => clearInterval(timer);
 }
