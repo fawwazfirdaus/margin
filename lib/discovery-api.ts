@@ -1,3 +1,4 @@
+import { startThreads, threadProgress, threadWorker } from './thread-jobs.ts';
 import {unrollBookmark} from './public-unroll.ts';
 import { localThread,setThreadSelection } from './free-thread.ts';
 import { directLinkWorker, scanLinkedPosts } from './link-preview.ts';
@@ -40,6 +41,7 @@ function title(value: unknown) {
 }
 
 export function discovery(db: DatabaseSync, live: boolean) {
+  const stopThreads=live?threadWorker(db):undefined;
   const stopLinks=live?directLinkWorker(db):undefined;
   const worker = live ? indexWorker(db) : undefined;
   const queryVector = worker?.query || (async () => undefined);
@@ -82,6 +84,14 @@ export function discovery(db: DatabaseSync, live: boolean) {
       };
       return send(c);
     }
+    if(post && path==='/api/discover/thread-index'){
+      if(owner.startsWith('demo-'))throw fail(400,'Connect your library first.');
+      const v=object(await jsonBody(req));
+      if(v.action==='pause')db.prepare('UPDATE thread_runs SET active=0 WHERE owner=?').run(owner);
+      else if(v.action==='start'||v.action==='retry')startThreads(db,owner,v.action==='retry');
+      else throw fail(400,'Unknown thread index action.');
+      return send(threadProgress(db,owner));
+    }
     if(post && path==='/api/discover/unroll'){
       const v=object(await jsonBody(req));
       const result=await unrollBookmark(db,owner,String(v.id||''));
@@ -119,6 +129,7 @@ export function discovery(db: DatabaseSync, live: boolean) {
         WHERE b.owner=? GROUP BY l.status`).all(owner);
       const linkCount=(status:string)=>Number(linkCounts.find(r=>r.status===status)?.n??0);
       return send({
+        threads: threadProgress(db,owner),
         links: {indexed:linkCount('indexed'),pending:linkCount('pending'),failed:linkCount('failed'),
           skipped:linkCount('skipped'),unavailable:linkCount('unavailable')},
         total: counts.reduce((sum, r) => sum + Number(r.n), 0),
@@ -264,5 +275,5 @@ export function discovery(db: DatabaseSync, live: boolean) {
     }
     throw fail(404, 'Unknown library action.');
   }
-  return { dispatch, close: () => {stopLinks?.();worker?.stop();} };
+  return { dispatch, close: () => {stopThreads?.();stopLinks?.();worker?.stop();} };
 }

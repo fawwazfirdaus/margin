@@ -6,6 +6,14 @@ const snowflake = (v: unknown): v is string => typeof v === 'string' && /^\d{1,2
 const obj = (v: unknown): Record<string, unknown> =>
   v && typeof v === 'object' ? (v as Record<string, unknown>) : {};
 const fail = (status: number, message: string) => Object.assign(Error(message), { status });
+const unavailableCodes = new Set([401, 403, 404, 410]);
+
+function retryDelay(header: string | null) {
+  if (!header) return 0;
+  if (/^\d+$/.test(header)) return Number(header) * 1000;
+  const at = Date.parse(header);
+  return Number.isFinite(at) ? Math.max(0, at - Date.now()) : 0;
+}
 
 function mediaUrl(value: unknown, host: string): string | undefined {
   if (typeof value !== 'string') return;
@@ -85,15 +93,19 @@ export async function unrollBookmark(db: DatabaseSync, owner: string, id: string
   } catch {
     throw fail(502, 'FxEmbed could not be reached. Try again later.');
   }
-  if (!response.ok)
-    throw fail(
-      response.status === 429 ? 429 : 502,
-      [401, 403, 404].includes(response.status)
-        ? 'FxEmbed could not return this public post.'
-        : 'FxEmbed returned HTTP ' + response.status + '. Try again later.'
-    );
-  const data = obj(await response.json()),
-    anchor = asPart(data.status);
+  if (!response.ok) {
+    const code = response.status;
+    const unavailable = unavailableCodes.has(code);
+    const message = unavailable ? 'FxEmbed could not return this public post.' : `FxEmbed returned HTTP ${code}. Try again later.`;
+    throw Object.assign(fail(code === 429 ? 429 : 502, message), {
+      unavailable,
+      retryAfterMs: retryDelay(response.headers.get('retry-after'))
+    });
+  }
+  const data = obj(await response.json()), anchor = asPart(data.status);
+  const status = obj(data.status);
+  if (!anchor && (unavailableCodes.has(Number(data.code)) || status.type === 'tombstone' || obj(status.author).protected === true))
+    throw Object.assign(fail(502, 'FxEmbed could not return this public post.'), { unavailable: true });
   if (data.code !== 200 || anchor?.id !== id || (data.thread !== null && !Array.isArray(data.thread)))
     throw fail(502, 'FxEmbed returned an unavailable or incomplete thread response.');
   const nodes = new Map<string, PostPart>();
@@ -112,9 +124,10 @@ export async function unrollBookmark(db: DatabaseSync, owner: string, id: string
     const row = db.prepare('SELECT seq FROM bookmarks WHERE seq=? AND owner=? AND id=?').get(before.seq, owner, id);
     if (!row) throw fail(404, 'Bookmark removed during lookup.');
     db.prepare(
-      `INSERT INTO public_unrolls(book,parts,fetched_at) VALUES(?,?,?)
-      ON CONFLICT(book) DO UPDATE SET parts=excluded.parts,fetched_at=excluded.fetched_at`
-    ).run(row.seq, JSON.stringify(chain), fetchedAt);
+      `INSERT INTO public_unrolls(book,parts,fetched_at,focal) VALUES(?,?,?,?)
+      ON CONFLICT(book) DO UPDATE SET parts=excluded.parts,fetched_at=excluded.fetched_at,focal=excluded.focal`
+    ).run(row.seq, JSON.stringify(chain), fetchedAt, JSON.stringify(anchor));
+    db.prepare('DELETE FROM thread_jobs WHERE book=?').run(row.seq);
     db.prepare('INSERT OR IGNORE INTO dirty VALUES(?)').run(row.seq);
     db.exec('COMMIT');
   } catch (e) {
@@ -127,13 +140,16 @@ export async function unrollBookmark(db: DatabaseSync, owner: string, id: string
 // Keep a provider refresh separate from X sync and manual selections. Use the same
 // merged ordering for indexing, rendering and resolving citations.
 export function withPublicThread(db: DatabaseSync, book: number, post: Post): Post {
-  const row = db.prepare('SELECT parts,fetched_at FROM public_unrolls WHERE book=?').get(book);
+  const row = db.prepare('SELECT parts,fetched_at,focal FROM public_unrolls WHERE book=?').get(book);
   if (!row) return post;
   const parts = JSON.parse(String(row.parts)) as PostPart[];
+  const focal = row.focal ? JSON.parse(String(row.focal)) as PostPart : undefined;
   const thread = new Map(parts.map((p) => [p.id, p]));
   for (const p of post.context?.thread || []) thread.set(p.id, p);
   return {
     ...post,
+    // Timeline imports often saved a shortened or empty caption.
+    body: focal && focal.body.length > post.body.length ? focal.body : post.body,
     context: {
       ...post.context,
       quotes: post.context?.quotes || [],

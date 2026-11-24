@@ -8,8 +8,8 @@ import type { PhotoJob, ReaderData } from '../shared/discovery.ts';
 export function setupIndex(db: DatabaseSync) {
   db.exec('PRAGMA foreign_keys=ON');
   const version = Number(db.prepare('PRAGMA user_version').get()?.user_version);
-  if (version > 5) throw new Error('This library needs a newer version of Margin.');
-  if (version === 5) return;
+  if (version > 6) throw new Error('This library needs a newer version of Margin.');
+  if (version === 6) return;
   if (version === 0)
     db.exec(`BEGIN;
     CREATE TABLE dirty(book INTEGER PRIMARY KEY REFERENCES bookmarks(seq) ON DELETE CASCADE);
@@ -54,9 +54,16 @@ export function setupIndex(db: DatabaseSync) {
       target TEXT NOT NULL,url TEXT NOT NULL,position INTEGER NOT NULL,PRIMARY KEY(book,target));
     INSERT OR IGNORE INTO dirty SELECT DISTINCT book FROM linked_sources WHERE body<>'';
     PRAGMA user_version=4; COMMIT;`);
-  db.exec(`BEGIN;
+  if(version<5) db.exec(`BEGIN;
     CREATE TABLE public_unrolls(book INTEGER PRIMARY KEY REFERENCES bookmarks(seq) ON DELETE CASCADE,parts TEXT NOT NULL,fetched_at TEXT NOT NULL);
     PRAGMA user_version=5; COMMIT;`);
+  db.exec(`BEGIN;
+    CREATE TABLE thread_runs(owner TEXT PRIMARY KEY,active INTEGER NOT NULL DEFAULT 0,not_before INTEGER NOT NULL DEFAULT 0);
+    CREATE TABLE thread_jobs(book INTEGER PRIMARY KEY REFERENCES bookmarks(seq) ON DELETE CASCADE,
+      state TEXT NOT NULL DEFAULT 'waiting',attempts INTEGER NOT NULL DEFAULT 0,ready INTEGER NOT NULL DEFAULT 0,reason TEXT);
+    CREATE INDEX thread_jobs_ready ON thread_jobs(state,ready,book);
+    ALTER TABLE public_unrolls ADD COLUMN focal TEXT;
+    PRAGMA user_version=6; COMMIT;`);
 }
 
 // A long screenshot or post can contribute several results, each traceable to one attachment.
