@@ -144,7 +144,8 @@ export async function search(
       : undefined;
   const rows = db
     .prepare(
-      `SELECT p.pid,p.book,p.source,p.slot,p.body,p.model,p.vector FROM passages p
+      `SELECT p.pid,p.book,p.source,p.slot,p.body,p.model,p.vector,l.target AS linkedId,l.author AS linkedAuthor FROM passages p
+    LEFT JOIN linked_sources l ON p.source='linked' AND p.slot=l.lid AND p.book=l.book
     JOIN bookmarks b ON b.seq=p.book WHERE ${where}`
     )
     .all(...args);
@@ -182,6 +183,7 @@ export async function search(
         score,
         e: {
           source: row.source as Evidence['source'],
+          ...(row.linkedId?{postId:String(row.linkedId),author:String(row.linkedAuthor)}:{}),
           slot: Number(row.slot),
           text: excerpt(String(row.body), terms)
         }
