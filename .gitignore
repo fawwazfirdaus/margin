@@ -1,0 +1,15 @@
+# Local credentials and bookmark data
+.env
+.env.*
+!.env.example
+/data/
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+*.sql
+
+# Local tooling
+node_modules/
+.DS_Store
+*.log
