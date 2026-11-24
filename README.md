@@ -1,16 +1,32 @@
 # Margin
 
-Margin is a local web app for reviewing your X bookmarks one post at a time. Browse photos, play videos, and search by author, text, or tag. Your library and review decisions live in SQLite on your machine.
+Margin is a local, searchable library for your X bookmarks. Search the wording or meaning of a post, find text inside images, and ask questions with links to the passages that support each answer.
 
-## Try the sample library
+## Run locally
 
-From the project directory, run the following with Node.js 24 or newer.
+Use Node.js 24 or newer and npm. From the project directory:
 
 ```sh
+npm ci
 npm start
 ```
 
-Open <http://127.0.0.1:4173> to try the sample posts, images, and video. The sample runs without X credentials or package installation.
+Open <http://127.0.0.1:4173>. The sample posts, reader, keyword search, collections, and browser OCR work without an X account. Startup compiles the TypeScript UI. Models are optional for the sample.
+
+## Search and Ask
+
+- Search with a phrase, a description, or an `@handle`. Double quotes require a literal phrase. Combine the results with author, media, tag, review state, collection, and publication date filters.
+- Open a result to read the post, browse its media, and see the matching passage. Image-text matches open the matching attachment. Closing the reader returns to the result list.
+- A **collection** contains bookmarks you choose. A **saved search** reruns a query and filters over the current library. The review queue, tags, Archive, and Keep remain account-specific.
+- For local semantic search, install [Ollama](https://ollama.com/) and run `ollama pull all-minilm`. Keep Ollama running on its default local port (11434). Margin builds normalized passage embeddings in the background, persists them in SQLite, and combines vector similarity with FTS5 keyword rankings. **Index coverage** reports progress. Keyword search works while the index is building.
+- For generated answers, run `ollama pull gpt-oss:20b` or set `MARGIN_CHAT_MODEL` to an installed local chat model that fits your machine. **Ask library** retrieves passages from the current view, returns citations, and opens each source in the reader. Exact counts like “How many of those are videos?” use the matching records. Without a chat model, Ask can show supporting excerpts. Video audio, external articles, and complete threads are outside the index.
+- Optional hosted synthesis uses [Ollama Cloud](https://docs.ollama.com/cloud). Set `MARGIN_OLLAMA_CLOUD_KEY` and `MARGIN_CLOUD_MODEL` on your own server. Selecting the hosted option in Ask sends the question and up to six retrieved excerpts with author attribution to Ollama. Provider pricing and terms apply. Leave the option unchecked for local inference.
+
+## Index text inside photos
+
+Open **Index coverage**, select a batch size, and click **Scan photos**. English OCR runs in a browser worker using Tesseract.js, with the engine and language files served by your own Margin instance. The server fetches the selected bookmarked images from X's media CDN. OCR makes no X API or hosted AI calls.
+
+The tab saves extracted text and word positions to the account's SQLite library after each image. You can pause between images, close the tab, and resume with **Scan photos**. Empty and failed images are tracked separately, with explicit retry for failures. Content hashes allow reuse within the same account. A removed bookmark drops its associated search passages, vectors, collection memberships, and photo text.
 
 ## Import your bookmarks
 
@@ -38,7 +54,7 @@ Choose **Remove from X…** on the post. The first use requests the additional O
 
 Install development dependencies with `npm ci`. Run `npm run check` for strict type checking, syntax checks, and integration tests. Tests simulate the X API and use a temporary local server. Node 24 runs the TypeScript backend directly. HTTP routes live in `server.ts`, and `lib/` contains the X integration, SQLite storage, and sample library.
 
-The current UI is plain JavaScript in `public/`. Its API client (`public/api.js`) and the backend share bookmark, media, and response types from `shared/contracts.ts`. Run `npm run typecheck` to check both the Node and browser contracts.
+The UI lives in `client/` with its HTML and styles in `public/`. Shared TypeScript contracts live in `shared/`. Run `npm run typecheck` to check server and browser code. Index tables are derived from the bookmark library and migrate on startup.
 
 ## License
 
