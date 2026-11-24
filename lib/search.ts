@@ -1,3 +1,4 @@
+import { articleSections } from '../shared/articles.ts';
 import { withPublicThread } from './public-unroll.ts';
 import type { DatabaseSync, SQLInputValue } from 'node:sqlite';
 import type { Bookmark, Post } from '../shared/contracts.ts';
@@ -89,24 +90,38 @@ export async function search(
   spec: SearchSpec,
   offset: number,
   limit: number,
-  embedding: (q: string) => Promise<number[] | undefined>
+  embedding: (q: string) => Promise<number[] | undefined>,
+  evidenceMode?: { within?: Set<string> }
 ): Promise<Results> {
   syncText(db);
   const q = spec.q.trim().slice(0, 600);
   const handle = q.match(/(?:^|\s)@(\w{1,15})(?=\s|$)/);
   const f = { ...spec.filters, ...(handle ? { author: handle[1].toLowerCase() } : {}) };
-  const { where, args } = scope(owner, f);
+  const scoped = scope(owner, f);
+  const where = evidenceMode?.within ? scoped.where + ' AND b.id IN (SELECT value FROM json_each(?))' : scoped.where;
+  const args = evidenceMode?.within ? [...scoped.args, JSON.stringify([...evidenceMode.within])] : scoped.args;
   const text = (handle ? q.replace(handle[0], ' ') : q).trim();
   const base = db
-    .prepare('SELECT b.seq,b.content,b.state FROM bookmarks b WHERE ' + where + ' ORDER BY b.seq')
+    .prepare('SELECT b.seq,b.id,b.content,b.state FROM bookmarks b WHERE ' + where + ' ORDER BY b.seq')
     .all(...args);
-  const books = new Map(base.map((b) => [Number(b.seq), b]));
+  const books = new Map(base.map(b => [Number(b.seq), b]));
   const terms = matchingTerms(text);
   function hit(seq: number, e?: Evidence): Hit {
     const row = books.get(seq)!,
       p = JSON.parse(String(row.content)) as Post,
       m = p.media[0];
-    const context=e?.source==='thread'?withPublicThread(db,seq,p).context:p.context;
+    const detailed = e && (e.source === 'thread' || e.source === 'quote' || e.source === 'article' || e.postId && e.source === 'image')
+      ? withPublicThread(db,seq,p) : p;
+    const context = detailed.context;
+    if (e?.source === 'article') {
+      const a = articleSections(detailed)[e.slot];
+      if (a) e = { ...e, postId: a.postId, author: a.author, paragraph: a.paragraph };
+    }
+    if (e?.source === 'image' && e.postId) {
+      const sourceId = e.postId;
+      const part = [...(context?.thread || []), ...(context?.quotes || [])].find(part => part.id === sourceId);
+      if (part) e = { ...e, author: part.author };
+    }
     const related=e?.source==='quote'?context?.quotes[e.slot]:e?.source==='thread'?context?.thread[e.slot]:undefined;
     if(e && related)e={...e,author:related.author,postId:related.id};
     return {
@@ -123,7 +138,7 @@ export async function search(
   if (!text)
     return {
       hits: [...books.keys()].slice(offset, offset + limit).map((b) => hit(b)),
-      total: base.length,
+      total: books.size,
       semantic: false
     };
   if (!books.size) return { hits: [], total: 0, semantic: false };
@@ -146,7 +161,8 @@ export async function search(
       : undefined;
   const rows = db
     .prepare(
-      `SELECT p.pid,p.book,p.source,p.slot,p.body,p.model,p.vector,l.target AS linkedId,l.author AS linkedAuthor FROM passages p
+      `SELECT p.pid,p.book,p.source,p.slot,p.body,p.model,${query ? 'p.vector' : 'NULL'} AS vector,f.post_id AS photoPost,f.attachment,l.target AS linkedId,l.author AS linkedAuthor FROM passages p
+    LEFT JOIN photos f ON p.source='image' AND p.book=f.book AND p.slot=f.slot
     LEFT JOIN linked_sources l ON p.source IN ('linked','selected') AND p.slot=l.lid AND p.book=l.book
     JOIN bookmarks b ON b.seq=p.book WHERE ${where}`
     )
@@ -155,6 +171,7 @@ export async function search(
   const scores = new Map<number, number>();
   const semantic: { pid: number; score: number }[] = [];
   for (const row of rows) {
+    if (!books.has(Number(row.book))) continue;
     const body = String(row.body).toLowerCase(),
       pid = Number(row.pid);
     if (strict.some((phrase) => !body.includes(phrase))) continue;
@@ -167,7 +184,7 @@ export async function search(
       row.vector instanceof Uint8Array &&
       row.vector.byteLength === query.length * 4
     ) {
-      const bytes = Buffer.from(row.vector);
+      const bytes = Buffer.from(row.vector.buffer, row.vector.byteOffset, row.vector.byteLength);
       let dot = 0;
       for (let i = 0; i < query.length; i++) dot += bytes.readFloatLE(i * 4) * query[i];
       if (dot >= 0.34) semantic.push({ pid, score: dot });
@@ -176,25 +193,43 @@ export async function search(
   semantic
     .sort((a, b) => b.score - a.score)
     .forEach(({ pid }, i) => scores.set(pid, (scores.get(pid) || 0) + 1 / (40 + i)));
-  const winners = new Map<number, { score: number; e: Evidence }>();
+  const winners = new Map<string, { book: number; score: number; e: Evidence }>();
   for (const row of rows) {
     const b = Number(row.book),
       score = scores.get(Number(row.pid));
-    if (books.has(b) && score !== undefined && (!winners.has(b) || score > winners.get(b)!.score)) {
-      winners.set(b, {
+    const key = evidenceMode ? [b, row.source, row.slot].join('/') : String(b);
+    if (books.has(b) && score !== undefined && (!winners.has(key) || score > winners.get(key)!.score)) {
+      winners.set(key, {
+        book: b,
         score,
         e: {
           source: row.source as Evidence['source'],
           ...(row.linkedId?{postId:String(row.linkedId),author:String(row.linkedAuthor)}:{}),
+          ...(row.photoPost ? {postId: String(row.photoPost), attachment: Number(row.attachment)} : {}),
           slot: Number(row.slot),
-          text: excerpt(String(row.body), terms)
+          text: evidenceMode ? String(row.body) : excerpt(String(row.body), terms)
         }
       });
     }
   }
-  const ranked = [...winners].sort((a, b) => b[1].score - a[1].score || a[0] - b[0]);
+  const ranked = [...winners.values()].sort((a, b) => b.score - a.score || a.book - b.book);
+  if (evidenceMode) {
+    const seen = new Set<string>(), hits: Hit[] = [];
+    for (const row of ranked) {
+      const h = hit(row.book, row.e), e = h.evidence;
+      // One post can appear under multiple bookmarks. Keep distinct article paragraphs and images.
+      const id = e.postId || h.id;
+      const key = e.source === 'article' ? id + '/article/' + e.paragraph :
+        e.source === 'image' || e.source === 'alt' ? id + '/' + e.source + '/' + (e.attachment ?? e.slot) : id;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      hits.push(h);
+      if (hits.length >= limit) break;
+    }
+    return { hits, total: hits.length, semantic: Boolean(query) };
+  }
   return {
-    hits: ranked.slice(offset, offset + limit).map(([b, r]) => hit(b, r.e)),
+    hits: ranked.slice(offset, offset + limit).map(r => hit(r.book, r.e)),
     total: ranked.length,
     semantic: Boolean(query)
   };
