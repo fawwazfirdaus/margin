@@ -1,3 +1,4 @@
+import {withPublicThread} from './public-unroll.ts';
 import { recordPreview, reachableLinks } from './linked-sources.ts';
 import type { DatabaseSync } from 'node:sqlite';
 import type { Post, Preview } from '../shared/contracts.ts';
@@ -12,7 +13,7 @@ export async function linkPreview(
 ): Promise<Preview> {
   const row = db.prepare('SELECT seq,content FROM bookmarks WHERE owner=? AND id=?').get(owner, bookmark);
   if (!row) throw Object.assign(Error('Bookmark not found.'), { status: 404 });
-  const post = JSON.parse(String(row.content)) as Post;
+  const post = withPublicThread(db,Number(row.seq),JSON.parse(String(row.content)));
   const mapped=reachableLinks(db,Number(row.seq),post).get(href);
   if (!mapped) throw Object.assign(Error('Link not found on this bookmark.'), { status: 404 });
   const result = await resolveLink(db, owner, post, href, mapped, transport);

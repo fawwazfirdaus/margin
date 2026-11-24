@@ -1,3 +1,4 @@
+import {withPublicThread} from './public-unroll.ts';
 import type { DatabaseSync } from 'node:sqlite';
 import { parseFragment, type DefaultTreeAdapterTypes as Tree } from 'parse5';
 import type { Post, Preview } from '../shared/contracts.ts';
@@ -118,7 +119,7 @@ export function recordPreview(
 ) {
   const row = db.prepare('SELECT id,content FROM bookmarks WHERE owner=? AND seq=?').get(owner, book);
   if (!row) return;
-  const mapped = reachableLinks(db, book, JSON.parse(String(row.content))).get(href);
+  const mapped = reachableLinks(db, book, withPublicThread(db,book,JSON.parse(String(row.content)))).get(href);
   const key = mapped && candidate(String(row.id), mapped);
   if (!key || mapped !== expected) return;
   const target = xPost(result.url);

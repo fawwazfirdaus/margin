@@ -1,3 +1,4 @@
+import { withPublicThread } from './public-unroll.ts';
 import type { DatabaseSync, SQLInputValue } from 'node:sqlite';
 import type { Bookmark, Post } from '../shared/contracts.ts';
 import type { Evidence, Filters, Hit, Results, SearchSpec } from '../shared/discovery.ts';
@@ -105,7 +106,8 @@ export async function search(
     const row = books.get(seq)!,
       p = JSON.parse(String(row.content)) as Post,
       m = p.media[0];
-    const related=e?.source==='quote'?p.context?.quotes[e.slot]:e?.source==='thread'?p.context?.thread[e.slot]:undefined;
+    const context=e?.source==='thread'?withPublicThread(db,seq,p).context:p.context;
+    const related=e?.source==='quote'?context?.quotes[e.slot]:e?.source==='thread'?context?.thread[e.slot]:undefined;
     if(e && related)e={...e,author:related.author,postId:related.id};
     return {
       id: p.id,
