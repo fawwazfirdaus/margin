@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#f6f4ed"><title>Margin · Bookmark library</title><link rel="stylesheet" href="/style.css"><script type="module" src="/app.js"></script></head>
+<body>
+<header><div class="wrap mast"><div class="brand"><span class="mark" aria-hidden="true"><i></i><i></i><i></i></span>Margin</div><div class="account"><span id="account">Bookmark library</span><button id="connect">Connect X <span aria-hidden="true">↗</span></button><button id="signout" hidden>Sign out</button></div></div></header>
+<main class="wrap">
+<div class="heading"><div><p class="eyebrow">Bookmark library</p><h1 id="title">Review queue</h1></div><label class="search"><span aria-hidden="true">⌕</span><input id="search" type="search" aria-label="Search bookmarks and tags" placeholder="Search bookmarks"></label></div>
+<nav aria-label="Library views" id="views"></nav>
+<p id="status" role="status" hidden></p>
+<div class="workspace"><section id="reader" aria-label="Selected bookmark"></section><aside><div class="railhead"><h2>In this view</h2><span id="total"></span></div><div id="queue"></div></aside></div>
+</main>
+<dialog id="setup"><form method="dialog"><button class="close" aria-label="Close">×</button><p class="eyebrow">Account setup</p><h2>Connect your X library</h2><p>Create an OAuth 2.0 app in the <a href="https://console.x.com/" target="_blank" rel="noopener">X Developer Console</a> and register this callback address.</p><code id="callback"></code><p>Copy <code>.env.example</code> to <code>.env</code>, add your client ID and, for a confidential web app, your client secret. Restart Margin and choose <b>Connect X</b>.</p><p>Import reads up to 20 bookmarks at a time using your X API credits. Tags and review decisions are saved in Margin.</p><button class="dark">Got it</button></form></dialog>
+<dialog id="tags"><form id="tagform"><p class="eyebrow">Organize</p><h2>Edit tags</h2><label for="taginput">Tags, separated by commas</label><input id="taginput" autocomplete="off"><footer><button type="button" id="cancel">Cancel</button><button class="dark">Save tags</button></footer></form></dialog>
+<noscript>Enable JavaScript to review your bookmarks.</noscript>
+</body></html>
