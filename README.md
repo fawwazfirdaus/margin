@@ -66,3 +66,7 @@ The UI lives in `client/` with its HTML and styles in `public/`. Shared TypeScri
 ## License
 
 [MIT](LICENSE).
+
+### Preview linked posts
+
+Post text in the reader contains clickable links. **Preview linked post** displays a saved copy from your account when available, or asks X’s public oEmbed endpoint for the post text and author. **Preview short link** checks where a t.co link points before requesting a post preview. A short link may lead to the bookmark’s own media or an external website. **Open on X** opens the post in your browser if public embedding is unavailable. Link previews use no X developer credits and do not load a thread or add a bookmark.
