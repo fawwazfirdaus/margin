@@ -1,6 +1,7 @@
+import { linkedText, linkPreviews, previewCard } from './linked-post.js';
 import type { Post, PostPart } from '../shared/contracts.js';
 import type { Evidence } from '../shared/discovery.js';
-import { el, marked } from './dom.js';
+import { el } from './dom.js';
 
 export function contextLabel(e: Evidence) {
   if (e.source === 'quote') return 'Quoted post · ' + (e.author || '');
@@ -24,7 +25,7 @@ export function contextReader(post: Post, terms: string[], demo: boolean) {
     block.dataset.contextId = p.id;
     block.append(el('small', 'origin', kind), el('b', '', p.author + (p.handle ? ' · @' + p.handle : '')));
     const text = el('p');
-    text.append(marked(p.body, terms));
+    text.append(linkedText(p, terms));
     block.append(text);
     for (const m of p.media) {
       if (m.type === 'photo') {
@@ -43,7 +44,7 @@ export function contextReader(post: Post, terms: string[], demo: boolean) {
         block.append(v);
       }
     }
-    if (!demo) block.append(link(p.id));
+    if (!demo) block.append(linkPreviews(post.id,p,terms),link(p.id));
     return block;
   }
   function appendQuotes(target: HTMLElement, id?: string) {
@@ -53,8 +54,8 @@ export function contextReader(post: Post, terms: string[], demo: boolean) {
       seen.add(id);
       const p = quotes.get(id);
       if (!p) {
-        target.append(el('p', 'muted', 'Quoted post unavailable.'));
-        if (!demo) target.append(link(id));
+        if (!demo) target.append(previewCard(post.id,'https://x.com/i/web/status/'+id,terms,'Preview quoted post'));
+        else target.append(el('p','muted','Quoted post unavailable.'));
         break;
       }
       target.append(card(p, depth++ ? 'Nested quote' : 'Quoted post'));

@@ -1,3 +1,4 @@
+import { linkedText,linkPreviews } from './linked-post.js';
 import { contextReader } from './post-context.js';
 import type { Catalog, Hit, ReaderData } from '../shared/discovery.js';
 import type { LibraryResponse } from '../shared/contracts.js';
@@ -74,7 +75,7 @@ export function reader(
     );
     content.append(byline, el('small', 'date', dateText(p.date)));
     const body = el('p', 'post-body');
-    body.append(marked(p.body, hit.terms));
+    body.append(linkedText(p, hit.terms));
     content.append(body);
     const m = p.media[slot],
       photo = data.photos.find((f) => f.slot === slot);
@@ -175,11 +176,11 @@ export function reader(
       details.append(t);
       content.append(details);
     }
-    content.append(contextReader(p,hit.terms,account().demo));
+    content.append(contextReader(p,hit.terms,account().demo),linkPreviews(p.id,p,hit.terms));
     if (!account().demo)
       content.append(
         action(
-          'Load quotes, author thread and media from X',
+          'Fetch thread and media · uses X API credits',
           () =>
             void mutate(async () => {
               if (!account().connected) {
