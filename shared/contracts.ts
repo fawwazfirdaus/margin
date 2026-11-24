@@ -17,6 +17,7 @@ export interface PostPart {
   conversationId?: string;
   parentId?: string;
   quoteId?: string;
+  links?: { url: string; expanded: string }[];
   replyCount?: number;
 }
 
@@ -58,3 +59,8 @@ export interface SyncResponse {
 
 export interface AuthorizationResponse { url: string }
 export interface SuccessResponse { ok: true }
+
+export type Preview =
+  | { kind: 'saved'; url: string; post: Post }
+  | { kind: 'public'; url: string; author: string; html: string }
+  | { kind: 'external' | 'self' | 'unavailable'; url: string; message: string };
