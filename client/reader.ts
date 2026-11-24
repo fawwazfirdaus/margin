@@ -1,3 +1,4 @@
+import { contextReader } from './post-context.js';
 import type { Catalog, Hit, ReaderData } from '../shared/discovery.js';
 import type { LibraryResponse } from '../shared/contracts.js';
 import { action, api, by, dateText, el, marked, notice, problem } from './dom.js';
@@ -28,13 +29,14 @@ export function reader(
       if (n !== version) return;
       data = loaded;
       hit = h;
-      slot = Math.max(0, h.evidence.slot);
+      slot = h.evidence.postId ? 0 : Math.max(0, h.evidence.slot);
       draw();
       if (!dlg.open) {
         opener = document.activeElement as HTMLElement;
         dlg.showModal();
       }
       dlg.scrollTop = 0;
+      if(h.evidence.postId)content.querySelector<HTMLElement>('[data-context-id="'+CSS.escape(h.evidence.postId)+'"]')?.scrollIntoView({block:'center'});
     } catch (e) {
       problem(e);
     }
@@ -173,10 +175,11 @@ export function reader(
       details.append(t);
       content.append(details);
     }
-    if (p.fromTimeline && !account().demo)
+    content.append(contextReader(p,hit.terms,account().demo));
+    if (!account().demo)
       content.append(
         action(
-          'Load full post and media from X',
+          'Load quotes, author thread and media from X',
           () =>
             void mutate(async () => {
               if (!account().connected) {

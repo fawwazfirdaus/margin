@@ -1,3 +1,4 @@
+import { contextLabel } from './post-context.js';
 import type { AuthorizationResponse, LibraryResponse, SyncResponse } from '../shared/contracts.js';
 import type { Answer, Catalog, Coverage, Filters, Hit, Results, SearchSpec } from '../shared/discovery.js';
 import { action, api, by, dateText, el, marked, notice, problem } from './dom.js';
@@ -104,7 +105,7 @@ function card(h: Hit) {
       el(
         'small',
         'origin',
-        (h.evidence.source === 'image' ? 'Text in image ' : 'Alt text · attachment ') + (h.evidence.slot + 1)
+        contextLabel(h.evidence)
       )
     );
   b.append(left);
@@ -172,7 +173,7 @@ async function refresh() {
     : account.demo
       ? 'Connect X ↗'
       : 'Reconnect X ↗';
-  by('signout').hidden = account.demo;
+  by('signout').hidden = account.demo;by('context-controls').hidden=account.demo;
   fillOptions();
   nav();
   await find();
@@ -199,6 +200,15 @@ async function coverage() {
   by('hosted-label').hidden = !s.hosted;
 }
 installOCR(coverage);
+by('load-context').onclick=async()=>{
+  const btn=by<HTMLButtonElement>('load-context');btn.disabled=true;
+  try{
+    if(!account.connected){if(!account.demo)location.assign((await api<AuthorizationResponse>('/auth/start','POST')).url);return;}
+    const r=await api<{processed:number;pending:number;warning?:string}>('/api/context/backfill','POST');
+    by('context-note').textContent=r.processed+' loaded · '+r.pending+' unchecked. '+(r.warning||'');
+    await find();
+  }catch(e){by('context-note').textContent=e instanceof Error?e.message:String(e);}finally{btn.disabled=false;}
+};
 input.oninput = () => {
   spec.q = input.value;
   activeSaved = 0;
@@ -312,7 +322,7 @@ by('ask-form').onsubmit = async (e) => {
     box.replaceChildren(copy);
     ans.citations.forEach((h, i) => {
       const b = action(
-        '[' + (i + 1) + '] ' + h.author + ' · ' + (h.evidence.slot < 0 ? 'Post' : 'Image ' + (h.evidence.slot + 1)),
+        '[' + (i + 1) + '] ' + h.author + ' · ' + contextLabel(h.evidence),
         () => void reading.open(h),
         'citation'
       );
