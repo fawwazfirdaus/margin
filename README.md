@@ -36,7 +36,9 @@ Choose **Remove from X…** on the post. The first use requests the additional O
 
 ## Development
 
-Install development dependencies with `npm ci`. Run `npm run check` for strict type checking, syntax checks, and integration tests. Tests simulate the X API and use a temporary local server. The browser UI is in `public/`, HTTP routes are in `server.ts`, and `lib/` contains the X integration, SQLite storage, and sample library.
+Install development dependencies with `npm ci`. Run `npm run check` for strict type checking, syntax checks, and integration tests. Tests simulate the X API and use a temporary local server. Node 24 runs the TypeScript backend directly. HTTP routes live in `server.ts`, and `lib/` contains the X integration, SQLite storage, and sample library.
+
+The current UI is plain JavaScript in `public/`. Its API client (`public/api.js`) and the backend share bookmark, media, and response types from `shared/contracts.ts`. Run `npm run typecheck` to check both the Node and browser contracts.
 
 ## License
 

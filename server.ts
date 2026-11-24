@@ -21,7 +21,7 @@ function errorMessage(error: unknown): string {
 
 const root = fileURLToPath(new URL('./public/', import.meta.url));
 const assets = new Map(Object.entries({
-  '/':'index.html', '/app.js':'app.js', '/style.css':'style.css',
+  '/':'index.html', '/app.js':'app.js', '/api.js':'api.js', '/style.css':'style.css',
   ...Object.fromEntries(['tide.jpg','shore.jpg','drift.jpg','drift.mp4'].map(n=>['/media/'+n,'media/'+n]))
 }));
 const mime: Record<string,string> = { html:'text/html; charset=utf-8', js:'text/javascript', css:'text/css', jpg:'image/jpeg', mp4:'video/mp4' };

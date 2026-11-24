@@ -1,6 +1,10 @@
+import { authorize, editBookmark, getLibrary, importPage, refreshMedia, removeBookmark, signOut } from './api.js';
+
 const $ = id => document.getElementById(id);
 const views = { inbox:'Review queue', kept:'Kept', archive:'Archive', all:'All posts' };
-let library, view = 'inbox', selected, mediaIndex = 0, query = '', editing, busy = false;
+/** @type {import('../shared/contracts.ts').LibraryResponse} */
+let library;
+let view = 'inbox', selected, mediaIndex = 0, query = '', editing, busy = false;
 
 function element(tag, className, text) {
   const el = document.createElement(tag);
@@ -18,14 +22,8 @@ function notice(text) {
   $('status').hidden = !text;
   $('status').textContent = text;
 }
-async function api(path, method = 'GET', body) {
-  const res = await fetch(path,{method,headers:body ? {'Content-Type':'application/json'} : {},body:body && JSON.stringify(body)});
-  const result = await res.json();
-  if (!res.ok) throw new Error(result.error || 'Request failed.');
-  return result;
-}
 async function load() {
-  library = await api('/api/library');
+  library = await getLibrary();
   render();
 }
 function filtered() {
@@ -85,7 +83,7 @@ async function edit(id,data) {
   if (busy) return;
   busy = true;
   try {
-    await api('/api/posts/'+encodeURIComponent(id),'PATCH',data);
+    await editBookmark(id,data);
     await load();
     notice(data.state ? 'Moved to '+views[data.state]+'.' : 'Tags saved.');
   } catch (e) { notice(e.message); }
@@ -95,13 +93,13 @@ async function managePost(post) {
   if (busy) return;
   if (!library.canRemove) {
     if (!window.confirm('Enable bookmark removal for @'+library.name+'? After authorizing on X, select the post again to remove it.')) return;
-    try { const {url}=await api('/auth/manage','POST'); location.assign(url); }
+    try { const {url}=await authorize('/auth/manage'); location.assign(url); }
     catch (error) { notice(error.message); }
     return;
   }
   if (!window.confirm('Remove the bookmark by '+post.author+' from @'+library.name+' on X and from Margin?\n\n'+post.body.slice(0,140))) return;
   busy = true;
-  try { await api('/api/posts/'+post.id,'DELETE'); await load(); notice('Bookmark removed from X and Margin.'); }
+  try { await removeBookmark(post.id); await load(); notice('Bookmark removed from X and Margin.'); }
   catch (error) { notice(error.message); await load().catch(()=>{}); }
   finally {busy=false;}
 }
@@ -111,9 +109,9 @@ async function loadPostMedia(post) {
   busy = true;
   try {
     if (!library.connected) {
-      const {url} = await api('/auth/start','POST'); location.assign(url); return;
+      const {url} = await authorize('/auth/start'); location.assign(url); return;
     }
-    await api('/api/posts/'+post.id+'/media','POST');
+    await refreshMedia(post.id);
     mediaIndex=0; await load(); notice('Post refreshed from X.');
   } catch (error) { notice(error.message); await load().catch(()=>{}); }
   finally { busy=false; }
@@ -190,7 +188,7 @@ $('tagform').onsubmit = event => {
   $('tags').close(); edit(editing,{tags});
 };
 $('signout').onclick = async () => {
-  try { await api('/auth/signout','POST'); location.reload(); } catch(e) { notice(e.message); }
+  try { await signOut(); location.reload(); } catch(e) { notice(e.message); }
 };
 $('connect').onclick = async () => {
   const btn = $('connect');
@@ -199,11 +197,11 @@ $('connect').onclick = async () => {
   try {
     if (library.connected) {
       notice('Reading up to 20 bookmarks from X…');
-      const result = await api('/api/sync','POST'); await load();
+      const result = await importPage(); await load();
       notice(result.added+' new bookmarks. '+(result.more ? 'Choose Import next page to continue.' : 'X supplied no next page. Your X bookmark list may contain more posts.') +
         (result.partial ? ' X could not return some requested data.' : ''));
     } else {
-      const {url} = await api('/auth/start','POST'); location.assign(url);
+      const {url} = await authorize('/auth/start'); location.assign(url);
     }
   } catch(e) { notice(e.message); await load().catch(()=>{}); }
   finally {btn.disabled=false;}
