@@ -1,3 +1,4 @@
+import {freeThread} from './free-thread.js';
 import { linkedText,linkPreviews } from './linked-post.js';
 import { contextReader } from './post-context.js';
 import type { Catalog, Hit, ReaderData } from '../shared/discovery.js';
@@ -187,6 +188,11 @@ export function reader(
       }
     }
     content.append(contextReader(p,hit.terms,account().demo),linkPreviews(p.id,p,hit.terms));
+    const activeVersion=version;
+    content.append(freeThread(data,hit.terms,async()=>{
+      await refresh();
+      if(dlg.open && activeVersion===version)await open(hit);
+    }));
     if (!account().demo)
       content.append(
         action(
