@@ -181,6 +181,18 @@ async function refresh() {
 }
 async function coverage() {
   const s = await api<Coverage & { hosted: boolean; embeddingProvider:string; askProvider:string }>('/api/discover/status');
+  by('thread-index').hidden = account.demo;
+  const t = s.threads;
+  by('thread-summary').textContent = [
+    t.checked.toLocaleString() + ' checked',
+    t.threads.toLocaleString() + ' with connected replies',
+    t.waiting.toLocaleString() + ' queued',
+    t.unavailable.toLocaleString() + ' unavailable',
+    t.failed.toLocaleString() + ' failed'
+  ].join(' · ');
+  by('thread-start').hidden = t.active;
+  by('thread-pause').hidden = !t.active;
+  by('thread-retry').hidden = !t.failed || t.active;
   by('link-coverage').textContent=s.links.indexed+' indexed · '+s.links.pending+' pending · '+s.links.failed+' failed · '+s.links.skipped+' other links · '+s.links.unavailable+' unavailable';
   by('retry-links').hidden=!s.links.failed;
   by('vectors').textContent = s.embedded.toLocaleString() + ' / ' + s.passages.toLocaleString();
@@ -205,6 +217,20 @@ async function coverage() {
 }
 installOCR(coverage);
 installLinkIndex(coverage,()=>find());
+for (const [id, action] of [['thread-start', 'start'], ['thread-pause', 'pause'], ['thread-retry', 'retry']]) {
+  const button = by<HTMLButtonElement>(id);
+  button.onclick = async () => {
+    button.disabled = true;
+    try {
+      await api('/api/discover/thread-index', 'POST', { action });
+      await coverage();
+    } catch (e) {
+      problem(e);
+    } finally {
+      button.disabled = false;
+    }
+  };
+}
 by('load-context').onclick=async()=>{
   const btn=by<HTMLButtonElement>('load-context');btn.disabled=true;
   try{
