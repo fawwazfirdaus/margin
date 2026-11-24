@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
-import { library } from '../lib/database.js';
+import { library } from '../lib/database.ts';
 import { normalizePage, authorization } from '../lib/x.js';
 import { makeServer } from '../server.js';
 

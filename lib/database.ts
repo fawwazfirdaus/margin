@@ -1,6 +1,13 @@
 import { DatabaseSync } from 'node:sqlite';
+import type { Bookmark, BookmarkEdit, Post, ReviewState } from '../shared/contracts.ts';
 
-export function library(path) {
+interface BookmarkRow {
+  content: string;
+  state: ReviewState;
+  tags: string;
+}
+
+export function library(path: string) {
   const db = new DatabaseSync(path);
   db.exec(`PRAGMA journal_mode=WAL;
     CREATE TABLE IF NOT EXISTS bookmarks (
@@ -11,7 +18,7 @@ export function library(path) {
   const save = db.prepare('INSERT INTO bookmarks(owner,id,content) VALUES(?,?,?) ON CONFLICT(owner,id) DO UPDATE SET content=excluded.content');
   return {
     db,
-    savePage(owner, posts, next) {
+    savePage(owner: string, posts: Post[], next: string) {
       db.exec('BEGIN');
       try {
         let added = 0;
@@ -24,12 +31,21 @@ export function library(path) {
         return added;
       } catch (error) { db.exec('ROLLBACK'); throw error; }
     },
-    cursor(owner) { return db.prepare('SELECT cursor FROM cursors WHERE owner=?').get(owner)?.cursor || ''; },
-    list(owner) {
-      return db.prepare('SELECT content,state,tags FROM bookmarks WHERE owner=? ORDER BY seq').all(owner)
-        .map(p => ({ ...JSON.parse(p.content), state:p.state, tags:JSON.parse(p.tags) }));
+    cursor(owner: string): string {
+      const row = db.prepare('SELECT cursor FROM cursors WHERE owner=?').get(owner);
+      return typeof row?.cursor === 'string' ? row.cursor : '';
     },
-    edit(owner, id, {state, tags}) {
+    list(owner: string): Bookmark[] {
+      // These columns and JSON shapes also cover libraries created before the TS migration.
+      const rows = db.prepare('SELECT content,state,tags FROM bookmarks WHERE owner=? ORDER BY seq')
+        .all(owner) as unknown as BookmarkRow[];
+      return rows.map(row => ({
+        ...JSON.parse(row.content) as Post,
+        state: row.state,
+        tags: JSON.parse(row.tags) as string[]
+      }));
+    },
+    edit(owner: string, id: string, {state, tags}: BookmarkEdit) {
       if (state !== undefined && !['inbox','kept','archive'].includes(state)) throw new Error('Unknown review state.');
       if (tags !== undefined && (!Array.isArray(tags) || tags.length > 30 || tags.some(t => typeof t !== 'string' || t.length > 48))) throw new Error('Use up to 30 tags, each under 49 characters.');
       const normalized = tags && JSON.stringify([...new Set(tags.map(t => t.trim().toLowerCase()).filter(Boolean))]);
