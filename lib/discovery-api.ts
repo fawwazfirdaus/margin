@@ -87,8 +87,8 @@ export function discovery(db:DatabaseSync,live:boolean){
       const p=db.prepare('SELECT src FROM photos JOIN bookmarks b ON book=b.seq WHERE owner=? AND b.id=? AND slot=?').get(owner,url.searchParams.get('id')||'',Number(url.searchParams.get('slot')));
       if(!p)throw fail(404,'Image no longer in library.');
       const src=String(p.src);
-      if(['/media/tide.jpg','/media/shore.jpg','/media/drift.jpg'].includes(src)){
-        res.setHeader('Content-Type','image/jpeg');return res.end(await readFile(new URL('../public'+src,import.meta.url)));
+      if(['/media/tide.jpg','/media/shore.jpg','/media/drift.jpg','/media/field-note.png'].includes(src)){
+        res.setHeader('Content-Type',src.endsWith('.png')?'image/png':'image/jpeg');return res.end(await readFile(new URL('../public'+src,import.meta.url)));
       }
       const media=new URL(src);
       if(media.origin!=='https://pbs.twimg.com'||media.username||media.password||!media.pathname.startsWith('/media/'))throw fail(400,'Unsupported image source.');

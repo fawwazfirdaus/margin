@@ -1,14 +1,30 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#f6f4ed"><title>Margin · Bookmark library</title><link rel="stylesheet" href="/style.css"><script type="module" src="/app.js"></script></head>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#203e33"><title>Margin · Library</title><link rel="stylesheet" href="/style.css"><script src="/app.js" type="module"></script></head>
 <body>
-<header><div class="wrap mast"><div class="brand"><span class="mark" aria-hidden="true"><i></i><i></i><i></i></span>Margin</div><div class="account"><span id="account">Bookmark library</span><button id="connect">Connect X <span aria-hidden="true">↗</span></button><button id="signout" hidden>Sign out</button></div></div></header>
-<main class="wrap">
-<div class="heading"><div><p class="eyebrow">Bookmark library</p><h1 id="title">Review queue</h1></div><label class="search"><span aria-hidden="true">⌕</span><input id="search" type="search" aria-label="Search bookmarks and tags" placeholder="Search bookmarks"></label></div>
-<nav aria-label="Library views" id="views"></nav>
-<p id="status" role="status" hidden></p>
-<div class="workspace"><section id="reader" aria-label="Selected bookmark"></section><aside><div class="railhead"><h2>In this view</h2><span id="total"></span></div><div id="queue"></div></aside></div>
-</main>
-<dialog id="setup"><form method="dialog"><button class="close" aria-label="Close">×</button><p class="eyebrow">Account setup</p><h2>Connect your X library</h2><p>Create an OAuth 2.0 app in the <a href="https://console.x.com/" target="_blank" rel="noopener">X Developer Console</a> and register this callback address.</p><code id="callback"></code><p>Copy <code>.env.example</code> to <code>.env</code>, add your client ID and, for a confidential web app, your client secret. Restart Margin and choose <b>Connect X</b>.</p><p>Import reads up to 20 bookmarks at a time using your X API credits. Tags and review decisions are saved in Margin.</p><button class="dark">Got it</button></form></dialog>
-<dialog id="tags"><form id="tagform"><p class="eyebrow">Organize</p><h2>Edit tags</h2><label for="taginput">Tags, separated by commas</label><input id="taginput" autocomplete="off"><footer><button type="button" id="cancel">Cancel</button><button class="dark">Save tags</button></footer></form></dialog>
-<noscript>Enable JavaScript to review your bookmarks.</noscript>
-</body></html>
+<div class="shell">
+<aside class="sidebar" id="sidebar">
+<div class="brand"><span class="mark" aria-hidden="true"><i></i><i></i><i></i></span>Margin</div>
+<button id="mobile-nav" aria-expanded="false">Library menu</button>
+<div id="navigation"><nav aria-label="Library" id="views"></nav>
+<div class="side-section"><div class="side-title">Collections<button id="new-collection" aria-label="Create collection">+</button></div><div id="collections"></div></div>
+<div class="side-section"><div class="side-title">Saved searches</div><div id="saved"></div></div>
+<div class="side-bottom"><button id="coverage">Index coverage</button><small id="account">Connecting…</small><button id="connect">Connect X ↗</button><button id="signout" hidden>Sign out</button></div></div>
+</aside>
+<main><header class="heading"><div><p class="eyebrow">Bookmark library</p><h1 id="title">All bookmarks</h1></div><button id="ask-open" class="ask-button">Ask library <span aria-hidden="true">↗</span></button></header>
+<form class="search-box" id="search-form"><span class="glass" aria-hidden="true"></span><input id="query" type="search" aria-label="Search your bookmarks" placeholder="Search a phrase, a person, or an idea…" autocomplete="off"><button type="submit" aria-label="Run search">↵</button></form>
+<div class="toolbar"><button id="toggle-filters" aria-expanded="false">Filters</button><button id="save-search">Save search</button><button id="clear" hidden>Clear</button><span id="scope"></span></div>
+<form id="filters" class="filters" hidden><label>Author<input id="author" list="authors" placeholder="@handle"><datalist id="authors"></datalist></label><label>Tag<select id="tag"></select></label><label>Media<select id="media"><option value="">Any media</option><option value="photo">Photo</option><option value="video">Video or GIF</option><option value="text">Text only</option></select></label><label>Published from<input type="date" id="after"></label><label>Published through<input type="date" id="before"></label></form>
+<p id="notice" role="status" hidden></p>
+<section class="results" aria-label="Bookmark results"><div class="results-title"><h2 id="result-count">Loading library…</h2><span id="rank"></span></div><div id="results"></div><button id="more" hidden>Show more bookmarks</button></section>
+</main></div>
+<dialog id="reader"><div class="dialog-head"><p class="eyebrow">Bookmark reader</p><button id="close-reader" aria-label="Close reader">×</button></div><section id="reading"></section></dialog>
+<dialog id="ask"><div class="dialog-head"><h2>Ask your library</h2><button data-close="ask" aria-label="Close Ask">×</button></div><p id="ask-scope" class="muted"></p>
+<form id="ask-form"><label for="question">Your question</label><textarea id="question" required placeholder="What did I save about…?" rows="3"></textarea><label class="choice" id="hosted-label" hidden><input type="checkbox" id="hosted">Send this question and selected excerpts to Ollama Cloud</label><button class="primary" id="ask-submit">Ask</button></form><div id="answer" aria-live="polite"></div></dialog>
+<dialog id="index"><div class="dialog-head"><h2>Index coverage</h2><button data-close="index" aria-label="Close index coverage">×</button></div>
+<div class="index-row"><b>Semantic passages</b><span id="vectors"></span></div><p class="muted" id="model-note"></p>
+<div class="index-row"><b>Photo text</b><span id="ocr-count"></span></div><p class="muted" id="ocr-detail"></p>
+<p>English text recognition runs in this browser. Starting a scan reads bookmarked photos and saves their text and word positions to your Margin library. Keep the tab open while it works.</p>
+<label>Images this run<select id="scan-limit"><option value="50">Up to 50 photos</option><option value="10">Up to 10 photos</option><option value="999999">All remaining photos</option></select></label>
+<div class="decisions"><button class="primary" id="scan">Scan photos</button><button id="pause" hidden>Pause</button><button id="retry-ocr" hidden>Retry failed photos</button></div><p role="status" id="scan-note"></p></dialog>
+<dialog id="setup"><div class="dialog-head"><h2>Connect X</h2><button data-close="setup" aria-label="Close setup">×</button></div><p>Enable OAuth 2.0 in your X developer app and register this callback.</p><code id="callback"></code><p>Copy <code>.env.example</code> to <code>.env</code>, set your client ID and secret, and restart Margin. Importing uses X API credits.</p></dialog>
+<noscript>Enable JavaScript to search your library.</noscript></body></html>

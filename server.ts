@@ -1,3 +1,4 @@
+import { scriptAsset } from './lib/assets.ts';
 import { discovery, jsonBody } from './lib/discovery-api.ts';
 import { createServer } from 'node:http';
 import { randomBytes, createHash } from 'node:crypto';
@@ -22,10 +23,10 @@ function errorMessage(error: unknown): string {
 
 const root = fileURLToPath(new URL('./public/', import.meta.url));
 const assets = new Map(Object.entries({
-  '/':'index.html', '/app.js':'app.js', '/api.js':'api.js', '/style.css':'style.css',
-  ...Object.fromEntries(['tide.jpg','shore.jpg','drift.jpg','drift.mp4'].map(n=>['/media/'+n,'media/'+n]))
+  '/':'index.html', '/style.css':'style.css',
+  ...Object.fromEntries(['tide.jpg','shore.jpg','drift.jpg','drift.mp4','field-note.png'].map(n=>['/media/'+n,'media/'+n]))
 }));
-const mime: Record<string,string> = { html:'text/html; charset=utf-8', js:'text/javascript', css:'text/css', jpg:'image/jpeg', mp4:'video/mp4' };
+const mime: Record<string,string> = { html:'text/html; charset=utf-8', js:'text/javascript', css:'text/css', jpg:'image/jpeg', png:'image/png', mp4:'video/mp4' };
 const random = () => randomBytes(32).toString('base64url');
 const hash = (s: string) => createHash('sha256').update(s).digest('hex');
 const fail = (status: number, message: string) => Object.assign(new Error(message), { status });
@@ -69,11 +70,17 @@ export function makeServer(config: AppConfig, lib: ReturnType<typeof library>, t
       res.setHeader('Cache-Control','no-store');
       res.setHeader('X-Content-Type-Options','nosniff');
       res.setHeader('Referrer-Policy','no-referrer');
-      res.setHeader('Content-Security-Policy',"default-src 'self'; img-src 'self' https://*.twimg.com; media-src 'self' https://*.twimg.com; frame-ancestors 'none'; base-uri 'none'; object-src 'none'");
+      res.setHeader('Content-Security-Policy',"default-src 'self'; img-src 'self' https://*.twimg.com; media-src 'self' https://*.twimg.com; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'");
       if (req.headers.host !== new URL(config.origin).host) throw fail(403,'Open the configured Margin address.');
       if (req.method !== 'GET' && req.headers.origin !== config.origin) throw fail(403,'Request origin mismatch.');
       const url = new URL(req.url || '/', config.origin);
       const path = url.pathname;
+      const script=scriptAsset(path);
+      if(req.method==='GET' && script){
+        const bytes=await readFile(script.file);res.setHeader('Content-Type',script.type);
+        if(path.startsWith('/ocr/'))res.setHeader('Cache-Control','private, max-age=3600');
+        return res.end(bytes);
+      }
       const file = assets.get(path);
       if (req.method === 'GET' && file) {
         const bytes = await readFile(join(root,file));
