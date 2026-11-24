@@ -2,18 +2,31 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { library } from '../lib/database.ts';
-import { normalizePage, authorization } from '../lib/x.ts';
+import { normalizePage, authorization, type Transport } from '../lib/x.ts';
 import { makeServer } from '../server.ts';
+import type { AuthorizationResponse, LibraryResponse, Post, SyncResponse } from '../shared/contracts.ts';
+
+async function json<T>(response: Response): Promise<T> {
+  return await response.json() as T;
+}
+
+function sessionCookie(response: Response): string {
+  const cookie = response.headers.get('set-cookie');
+  assert.ok(cookie);
+  return cookie.split(';')[0];
+}
 
 test('media keeps attachment order and selects the highest bitrate playable MP4', () => {
-  const page=normalizePage({data:[{id:'123',attachments:{media_keys:['b','a','z','c']}}],includes:{media:[
+  const page=normalizePage({data:[{id:'123',attachments:{media_keys:['b','a','z','c','preview']}}],includes:{media:[
     {media_key:'b',type:'photo',url:'photo',alt_text:'Ocean'},
     {media_key:'a',type:'video',preview_image_url:'poster',variants:[
       {content_type:'video/mp4',bit_rate:500,url:'high'},{content_type:'video/mp4',bit_rate:100,url:'low'}]},
-    {media_key:'c',type:'animated_gif',variants:[{content_type:'video/mp4',url:'gif'}]}]}});
-  assert.deepEqual(page.posts[0].media.map(m=>m.src),['photo','high',undefined,'gif']);
+    {media_key:'c',type:'animated_gif',variants:[{content_type:'video/mp4',url:'gif'}]},
+    {media_key:'preview',type:'video',preview_image_url:'still'}]}});
+  assert.deepEqual(page.posts[0].media.map(m=>'src' in m ? m.src : undefined),['photo','high',undefined,'gif',undefined]);
   assert.equal(page.posts[0].media[1].poster,'poster');
   assert.equal(page.posts[0].media[2].type,'unavailable');
+  assert.equal(page.posts[0].media[4].poster,'still');
   assert.throws(()=>normalizePage({errors:[{}]}),/incomplete/);
   assert.equal(normalizePage({meta:{result_count:0}}).posts.length,0);
 });
@@ -21,12 +34,14 @@ test('media keeps attachment order and selects the highest bitrate playable MP4'
 test('re-import preserves review state, tags and per-owner isolation; failed batch rolls back', () => {
   const lib=library(':memory:');
   try {
-    lib.savePage('a',[{id:'42',body:'before'}],'page1');
+    const post: Post = {id:'42',handle:'test',author:'Test',date:'',body:'before',media:[]};
+    lib.savePage('a',[post],'page1');
     lib.edit('a','42',{state:'kept',tags:[' A ','a']});
-    assert.equal(lib.savePage('a',[{id:'42',body:'after'}],''),0);
-    assert.deepEqual(lib.list('a'),[{id:'42',body:'after',state:'kept',tags:['a']}]);
+    assert.equal(lib.savePage('a',[{...post,body:'after'}],''),0);
+    assert.deepEqual(lib.list('a'),[{...post,body:'after',state:'kept',tags:['a']}]);
     assert.equal(lib.edit('b','42',{state:'archive'}),0);
-    assert.throws(()=>lib.savePage('a',[{id:'43'},{id:null}],'bad'));
+    lib.db.exec("CREATE TRIGGER reject_row BEFORE INSERT ON bookmarks WHEN NEW.id='44' BEGIN SELECT RAISE(ABORT,'interrupted'); END;");
+    assert.throws(()=>lib.savePage('a',[{...post,id:'43'},{...post,id:'44'}],'bad'),/interrupted/);
     assert.equal(lib.list('a').length,1);
     assert.equal(lib.cursor('a'),'');
   } finally {lib.db.close();}
@@ -36,12 +51,14 @@ test('OAuth login, private library, pagination, token expiry and logout through 
   const lib=library(':memory:');
   const config={origin:'',clientId:'client',secret:'secret'};
   let calls=0, write=false, confirmed=false, removalCalls=0;
-  const transport=async (url, options)=>{
+  const transport: Transport=async (url, options)=>{
+    const headers=new Headers(options.headers);
     if(url.endsWith('/token')){
-      assert.ok(options.body.get('code_verifier')); assert.ok(options.headers.Authorization.startsWith('Basic '));
+      assert.ok(options.body instanceof URLSearchParams && options.body.get('code_verifier'));
+      assert.ok(headers.get('Authorization')?.startsWith('Basic '));
       return Response.json({access_token:'fixture',scope:write?'bookmark.read bookmark.write':'bookmark.read'});
     }
-    assert.equal(options.headers.Authorization,'Bearer fixture');
+    assert.equal(headers.get('Authorization'),'Bearer fixture');
     if(url.endsWith('/me'))return Response.json({data:{id:'77',username:'test'}});
     const request=new URL(url);
     if (request.pathname==='/2/tweets/1') return Response.json({data:{id:'1',text:'full post'}});
@@ -57,48 +74,51 @@ test('OAuth login, private library, pagination, token expiry and logout through 
   };
   const server=makeServer(config,lib,transport);
   server.listen(0,'127.0.0.1'); await once(server,'listening');
-  t.after(async()=>{await new Promise(r=>server.close(r));lib.db.close();});
-  config.origin='http://127.0.0.1:'+server.address().port;
+  t.after(async()=>{await new Promise<void>((resolve,reject)=>server.close(err=>err ? reject(err) : resolve()));lib.db.close();});
+  const address=server.address();
+  assert.ok(address && typeof address === 'object');
+  config.origin='http://127.0.0.1:'+address.port;
   let cookie='';
-  const req=(path,method='GET',body)=>fetch(config.origin+path,{method,redirect:'manual',
+  const req=(path: string,method='GET',body?: object)=>fetch(config.origin+path,{method,redirect:'manual',
     headers:{cookie,origin:config.origin},body:body && JSON.stringify(body)});
+  const getLibrary=async()=>json<LibraryResponse>(await req('/api/library'));
   let res=await req('/api/library');
-  const demoCookie=res.headers.get('set-cookie').split(';')[0];
-  cookie=demoCookie; assert.equal((await res.json()).demo,true);
-  const {url}=await (await req('/auth/start','POST')).json();
+  const demoCookie=sessionCookie(res);
+  cookie=demoCookie; assert.equal((await json<LibraryResponse>(res)).demo,true);
+  const {url}=await json<AuthorizationResponse>(await req('/auth/start','POST'));
   assert.equal(new URL(url).searchParams.get('scope'),'tweet.read users.read bookmark.read');
   assert.equal((await req('/auth/callback?code=x&state=false')).headers.get('location'),'/?auth=expired');
   res=await req('/auth/callback?code=x&state='+new URL(url).searchParams.get('state'));
-  assert.equal(res.status,303); cookie=res.headers.get('set-cookie').split(';')[0];
+  assert.equal(res.status,303); cookie=sessionCookie(res);
   assert.notEqual(cookie,demoCookie);
-  assert.deepEqual((await (await req('/api/library')).json()).posts,[]);
-  assert.equal((await (await req('/api/sync','POST')).json()).more,true);
+  assert.deepEqual((await getLibrary()).posts,[]);
+  assert.equal((await json<SyncResponse>(await req('/api/sync','POST'))).more,true);
   assert.equal((await req('/api/posts/1','PATCH',{state:'invalid'})).status,400);
   assert.equal((await req('/api/posts/1','PATCH',{tags:[1]})).status,400);
   assert.equal((await req('/api/posts/1','PATCH',{state:'kept',tags:['science']})).status,200);
-  assert.equal((await (await req('/api/sync','POST')).json()).more,false);
-  const state=await (await req('/api/library')).json();
+  assert.equal((await json<SyncResponse>(await req('/api/sync','POST'))).more,false);
+  const state=await getLibrary();
   assert.equal(state.posts.length,2);assert.equal(state.posts[0].state,'kept');
   assert.equal((await fetch(config.origin+'/api/sync',{method:'POST',headers:{cookie}})).status,403);
   assert.equal((await req('/api/posts/1','DELETE')).status,403);
   assert.equal(removalCalls,0);
   assert.equal((await req('/api/posts/1/media','POST')).status,200);
-  assert.equal((await (await req('/api/library')).json()).posts[0].state,'kept');
-  const manage=new URL((await (await req('/auth/manage','POST')).json()).url);
-  assert.ok(manage.searchParams.get('scope').includes('bookmark.write')); write=true;
+  assert.equal((await getLibrary()).posts[0].state,'kept');
+  const manage=new URL((await json<AuthorizationResponse>(await req('/auth/manage','POST'))).url);
+  assert.ok(manage.searchParams.get('scope')?.includes('bookmark.write')); write=true;
   res=await req('/auth/callback?code=x&state='+manage.searchParams.get('state'));
-  cookie=res.headers.get('set-cookie').split(';')[0];
+  cookie=sessionCookie(res);
   assert.equal((await req('/api/posts/1','DELETE')).status,502);
-  assert.equal((await (await req('/api/library')).json()).posts.length,2);
+  assert.equal((await getLibrary()).posts.length,2);
   confirmed=true;
   assert.equal((await req('/api/posts/1','DELETE')).status,200);
-  assert.deepEqual((await (await req('/api/library')).json()).posts.map(p=>p.id),['2']);
+  assert.deepEqual((await getLibrary()).posts.map(p=>p.id),['2']);
   assert.equal(removalCalls,2);
   assert.equal((await req('/api/sync','POST')).status,502);
-  assert.equal((await (await req('/api/library')).json()).connected,false);
+  assert.equal((await getLibrary()).connected,false);
   await req('/auth/signout','POST');
   assert.equal((await req('/api/posts/1','PATCH',{state:'archive'})).status,401);
-  assert.equal((await (await req('/api/library')).json()).demo,true);
+  assert.equal((await getLibrary()).demo,true);
 });
 
 test('each authorization uses fresh PKCE and state',()=>{
