@@ -6,14 +6,30 @@ export type MediaAttachment =
   | { type: 'video' | 'animated_gif'; src?: string; poster?: string; alt?: string }
   | { type: 'unavailable'; poster?: string; alt?: string };
 
-export interface Post {
+export interface PostPart {
   id: string;
   author: string;
   handle: string;
   body: string;
   date: string;
   media: MediaAttachment[];
+  authorId?: string;
+  conversationId?: string;
+  parentId?: string;
+  quoteId?: string;
+  replyCount?: number;
+}
+
+export interface PostContext {
+  quotes: PostPart[];
+  thread: PostPart[];
+  checked?: boolean;
+  warning?: string;
+}
+
+export interface Post extends PostPart {
   fromTimeline?: boolean;
+  context?: PostContext;
 }
 
 export interface Bookmark extends Post {

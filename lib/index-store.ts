@@ -73,6 +73,10 @@ export function syncText(db: DatabaseSync) {
         });
       }
       passage('post', -1, [p.author, '@' + p.handle, p.body, ...JSON.parse(String(row.tags))].join(' '));
+      for(const source of ['quote','thread'] as const){
+        const parts=source==='quote'?p.context?.quotes:p.context?.thread;
+        parts?.forEach((part,slot)=>passage(source,slot,[part.author,'@'+part.handle,part.body,...part.media.map(m=>m.alt||'')].join(' ')));
+      }
       for (const [slot, m] of p.media.entries()) {
         if (m.alt && !/^(image|photo)$/i.test(m.alt)) passage('alt', slot, m.alt);
         if (m.type === 'photo' && m.src) {

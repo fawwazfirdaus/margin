@@ -14,7 +14,9 @@ export interface SearchSpec {
   filters: Filters;
 }
 export interface Evidence {
-  source: 'post' | 'alt' | 'image';
+  source: 'post' | 'alt' | 'image' | 'quote' | 'thread';
+  postId?: string;
+  author?: string;
   slot: number;
   text: string;
 }

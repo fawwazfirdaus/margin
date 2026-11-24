@@ -1,3 +1,5 @@
+import { enrichPost, preserveContext } from './lib/post-context.ts';
+import type { Post } from './shared/contracts.ts';
 import { scriptAsset } from './lib/assets.ts';
 import { discovery, jsonBody } from './lib/discovery-api.ts';
 import { createServer } from 'node:http';
@@ -13,7 +15,7 @@ import type {
   AuthorizationResponse, BookmarkEdit, LibraryResponse, SuccessResponse, SyncResponse
 } from './shared/contracts.ts';
 
-type Reply = LibraryResponse | AuthorizationResponse | SyncResponse | SuccessResponse | { error: string };
+type Reply = LibraryResponse | AuthorizationResponse | SyncResponse | SuccessResponse | { error: string } | {processed:number;pending:number;warning?:string};
 type Session = { id: string; owner: string; name: string };
 type PendingAuthorization = { state: string; verifier: string; expires: number; owner?: string };
 
@@ -154,12 +156,49 @@ export function makeServer(config: AppConfig, lib: ReturnType<typeof library>, t
           const cursor = lib.cursor(session.owner);
           const page = await fetchPage(user,cursor,transport);
           if (cursor && cursor === page.next) throw fail(502,'X repeated a page. Try importing later.');
-          const added = lib.savePage(session.owner,page.posts,page.next);
+          const posts:Post[]=[];
+          for(const p of page.posts){
+            const old=db.prepare('SELECT content FROM bookmarks WHERE owner=? AND id=?').get(session.owner,p.id);
+            const full=await enrichPost(p,user,transport);
+            posts.push(preserveContext(full,old?JSON.parse(String(old.content)):undefined));
+          }
+          const added = lib.savePage(session.owner,posts,page.next);
+          page.partial ||= posts.some(p=>p.context?.warning);
           return send(200,{added,more:Boolean(page.next),partial:page.partial});
         } catch (e) {
           if (errorMessage(e).includes('HTTP 401')) tokens.delete(session.id);
           throw e;
         } finally { syncing.delete(session.owner); }
+      }
+      if(req.method==='POST' && path==='/api/context/backfill'){
+        const user=tokens.get(session.id);
+        if(!user)throw fail(401,'Reconnect X before loading context.');
+        if(syncing.has(session.owner))throw fail(409,'Another library update is running.');
+        syncing.add(session.owner);
+        const pending="owner=? AND json_extract(content,'$.context.checked') IS NULL";
+        let processed=0,warning='';
+        try{
+          const rows=db.prepare('SELECT id,content FROM bookmarks WHERE '+pending+' ORDER BY seq LIMIT 5').all(session.owner);
+          for(const row of rows){
+            try{
+              const post=await enrichPost(await fetchPost(user,String(row.id),transport),user,transport);
+              const merged=preserveContext(post,JSON.parse(String(row.content)));
+              db.prepare('UPDATE bookmarks SET content=? WHERE owner=? AND id=?').run(JSON.stringify(merged),session.owner,row.id);
+              processed++;warning=merged.context?.warning||'';
+              if(warning)break;
+            }catch(e){
+              warning=errorMessage(e);
+              if(warning.includes('HTTP 401'))tokens.delete(session.id);
+              if(/HTTP (404|410)/.test(warning)){
+                const old=JSON.parse(String(row.content)) as Post;
+                old.context={quotes:[],thread:[],...old.context,checked:false,warning};
+                db.prepare('UPDATE bookmarks SET content=? WHERE owner=? AND id=?').run(JSON.stringify(old),session.owner,row.id);
+              }
+              break;
+            }
+          }
+          return send(200,{processed,warning,pending:Number(db.prepare('SELECT count(*) n FROM bookmarks WHERE '+pending).get(session.owner)?.n)});
+        }finally{syncing.delete(session.owner);}
       }
       const postRoute = /^\/api\/posts\/(\d{1,20})(\/media)?$/.exec(path);
       if (postRoute && ((req.method === 'DELETE' && !postRoute[2]) || (req.method === 'POST' && postRoute[2]))) {
@@ -175,7 +214,9 @@ export function makeServer(config: AppConfig, lib: ReturnType<typeof library>, t
             await removeBookmark(user,id,transport);
             db.prepare('DELETE FROM bookmarks WHERE owner=? AND id=?').run(session.owner,id);
           } else {
-            const post = await fetchPost(user,id,transport);
+            const previous=db.prepare('SELECT content FROM bookmarks WHERE owner=? AND id=?').get(session.owner,id);
+            const post = preserveContext(await enrichPost(await fetchPost(user,id,transport),user,transport),
+              previous?JSON.parse(String(previous.content)):undefined);
             db.prepare('UPDATE bookmarks SET content=? WHERE owner=? AND id=?').run(JSON.stringify(post),session.owner,id);
           }
           return send(200,{ok:true});

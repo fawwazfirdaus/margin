@@ -93,7 +93,7 @@ export async function answer(
   try {
     const claims = await generateAnswer(
       question,
-      citations.map((h) => h.author + ' · ' + h.evidence.source + ' · ' + h.evidence.text),
+      citations.map((h) => (h.evidence.author || h.author) + ' · ' + h.evidence.source + ' · ' + h.evidence.text),
       hosted
     );
     if (!claims.length)

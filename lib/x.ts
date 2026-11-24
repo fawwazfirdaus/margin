@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
-import type { MediaAttachment, Post } from '../shared/contracts.ts';
+import type { MediaAttachment, Post, PostPart } from '../shared/contracts.ts';
 
 export interface AppConfig {
   origin: string;
@@ -17,6 +17,9 @@ export interface XAccount {
 export type Transport = (url: string, options: RequestInit) => Promise<Response>;
 
 interface XPost {
+  conversation_id?: string;
+  referenced_tweets?: {type:string; id:string}[];
+  public_metrics?: {reply_count?:number};
   id: string;
   author_id?: string;
   text?: string;
@@ -35,9 +38,9 @@ interface XMedia {
   variants?: { content_type: string; bit_rate?: number; url: string }[];
 }
 
-interface XPage {
+export interface XPage {
   data?: XPost[];
-  includes?: { users?: { id: string; name: string; username: string }[]; media?: XMedia[] };
+  includes?: { tweets?: XPost[]; posts?: XPost[]; users?: { id: string; name: string; username: string }[]; media?: XMedia[] };
   meta?: { result_count?: number; next_token?: string };
   errors?: unknown[];
 }
@@ -68,7 +71,7 @@ export function authorization(clientId: string, origin: string, manageBookmarks 
   return { state, verifier, url: 'https://x.com/i/oauth2/authorize?' + query };
 }
 
-async function request<T>(path: string, options: RequestInit, transport: Transport): Promise<T> {
+export async function request<T>(path: string, options: RequestInit, transport: Transport): Promise<T> {
   const response = await transport('https://api.x.com' + path, { ...options, signal: AbortSignal.timeout(25000) });
   if (!response.ok) {
     const hints: Record<number,string> = { 401: 'Reconnect your X account.', 402: 'Check your X API credit balance.',
@@ -95,19 +98,35 @@ export function normalizePage(payload: XPage) {
   if (!Array.isArray(payload.data) && payload.meta?.result_count !== 0) throw new Error('X returned an incomplete bookmark page.');
   const users = new Map((payload.includes?.users || []).map(u => [u.id, u]));
   const media = new Map((payload.includes?.media || []).map(m => [m.media_key, m]));
-  const posts: Post[] = (payload.data || []).map(p => {
+  function part(p:XPost):PostPart {
     const author = p.author_id ? users.get(p.author_id) : undefined;
     if (!/^\d+$/.test(p.id)) throw new Error('X returned an invalid bookmark ID.');
-    return { id: p.id, author: author?.name || 'X author', handle: author?.username || '',
+    return { id:p.id, authorId:p.author_id, conversationId:p.conversation_id,
+      parentId:p.referenced_tweets?.find(r=>r.type==='replied_to')?.id,
+      quoteId:p.referenced_tweets?.find(r=>r.type==='quoted')?.id,replyCount:p.public_metrics?.reply_count, author: author?.name || 'X author', handle: author?.username || '',
       body: p.note_tweet?.text || p.note_post?.text || p.text || '', date: p.created_at || '',
       media: (p.attachments?.media_keys || []).map(key => attachment(media.get(key))) };
+  }
+  const included = new Map((payload.includes?.tweets || payload.includes?.posts || []).map(p=>[p.id,part(p)]));
+  const posts:Post[]=(payload.data||[]).map(raw=>{
+    const post:Post=part(raw), quotes:PostPart[]=[], seen=new Set([post.id]);
+    let id=post.quoteId;
+    while(id && !seen.has(id) && included.has(id)){
+      const quoted=included.get(id)!;quotes.push(quoted);seen.add(id);id=quoted.quoteId;
+    }
+    if(post.quoteId)post.context={quotes,thread:[]};
+    return post;
   });
   return { posts, next: payload.meta?.next_token || '', partial: Boolean(payload.errors?.length) };
 }
 
+export const contextFields = {
+  'tweet.fields':'created_at,attachments,author_id,note_tweet,conversation_id,referenced_tweets,public_metrics',
+  expansions:'author_id,attachments.media_keys,referenced_tweets.id,referenced_tweets.id.author_id',
+  'media.fields':'url,preview_image_url,type,variants,alt_text'
+};
 export async function fetchPage(user: XAccount, cursor: string, transport: Transport = fetch) {
-  const query = new URLSearchParams({ max_results: '20', 'tweet.fields': 'created_at,attachments,author_id,note_tweet',
-    expansions: 'author_id,attachments.media_keys', 'media.fields': 'url,preview_image_url,type,variants,alt_text' });
+  const query = new URLSearchParams({ max_results:'20', ...contextFields });
   if (cursor) query.set('pagination_token', cursor);
   return normalizePage(await request<XPage>('/2/users/' + user.account + '/bookmarks?' + query,
     { headers: { Authorization: 'Bearer ' + user.token } }, transport));
@@ -120,8 +139,7 @@ export async function removeBookmark(user: XAccount, postId: string, transport: 
 }
 
 export async function fetchPost(user: XAccount, id: string, transport: Transport = fetch) {
-  const query = new URLSearchParams({ 'tweet.fields': 'created_at,attachments,author_id,note_tweet',
-    expansions: 'author_id,attachments.media_keys', 'media.fields': 'url,preview_image_url,type,variants,alt_text' });
+  const query = new URLSearchParams(contextFields);
   const result = await request<SinglePost>('/2/tweets/' + id + '?' + query, {headers:{Authorization:'Bearer '+user.token}},transport);
   if (result.data?.id !== id) throw new Error('X could not return this post.');
   return normalizePage({...result,data:[result.data]}).posts[0];
