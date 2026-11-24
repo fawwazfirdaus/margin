@@ -1,0 +1,11 @@
+{
+  "name": "margin-bookmarks",
+  "version": "1.0.0",
+  "description": "A local web app for reviewing and organizing X bookmarks.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  }
+}
