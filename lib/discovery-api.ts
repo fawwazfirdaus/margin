@@ -100,8 +100,12 @@ export function discovery(db: DatabaseSync, live: boolean) {
           'SELECT count(*) n,count(CASE WHEN p.model=? AND vector IS NOT NULL THEN 1 END) ready FROM passages p JOIN bookmarks b ON b.seq=p.book WHERE owner=?'
         )
         .get(embedModel, owner)!;
+      const linkCounts=db.prepare(`SELECT l.status,count(*) n FROM linked_sources l JOIN bookmarks b ON b.seq=l.book
+        WHERE b.owner=? GROUP BY l.status`).all(owner);
+      const linkCount=(status:string)=>Number(linkCounts.find(r=>r.status===status)?.n??0);
       return send({
-        links: db.prepare("SELECT count(*) total,count(CASE WHEN l.status='indexed' THEN 1 END) indexed,count(CASE WHEN status='pending' THEN 1 END) pending,count(CASE WHEN status='failed' THEN 1 END) failed FROM linked_sources l JOIN bookmarks b ON b.seq=l.book WHERE owner=?").get(owner),
+        links: {indexed:linkCount('indexed'),pending:linkCount('pending'),failed:linkCount('failed'),
+          skipped:linkCount('skipped'),unavailable:linkCount('unavailable')},
         total: counts.reduce((sum, r) => sum + Number(r.n), 0),
         ready: n('ready'),
         empty: n('empty'),
@@ -110,7 +114,7 @@ export function discovery(db: DatabaseSync, live: boolean) {
         embedded: Number(em.ready),
         modelError: worker?.error() || '',
         hosted: hostedAvailable(),embeddingProvider:embedModel,askProvider
-      } satisfies Coverage & { links:unknown; hosted: boolean; embeddingProvider:string; askProvider:string });
+      } satisfies Coverage & { hosted: boolean; embeddingProvider:string; askProvider:string });
     }
     if (post && path === '/api/discover/search') {
       const v = object(await jsonBody(req));

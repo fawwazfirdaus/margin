@@ -67,6 +67,7 @@ export interface ReaderData {
   photos: { slot: number; words: WordBox[]; text: string }[];
 }
 export interface Coverage {
+  links: {indexed:number; pending:number; failed:number; skipped:number; unavailable:number};
   total: number;
   ready: number;
   empty: number;

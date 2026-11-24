@@ -180,8 +180,8 @@ async function refresh() {
   await find();
 }
 async function coverage() {
-  const s = await api<Coverage & { links:{total:number;indexed:number;pending:number;failed:number}; hosted: boolean; embeddingProvider:string; askProvider:string }>('/api/discover/status');
-  by('link-coverage').textContent=s.links.indexed+' indexed · '+s.links.pending+' pending · '+s.links.failed+' failed · '+(s.links.total-s.links.indexed-s.links.pending-s.links.failed)+' other or unavailable';
+  const s = await api<Coverage & { hosted: boolean; embeddingProvider:string; askProvider:string }>('/api/discover/status');
+  by('link-coverage').textContent=s.links.indexed+' indexed · '+s.links.pending+' pending · '+s.links.failed+' failed · '+s.links.skipped+' other links · '+s.links.unavailable+' unavailable';
   by('retry-links').hidden=!s.links.failed;
   by('vectors').textContent = s.embedded.toLocaleString() + ' / ' + s.passages.toLocaleString();
   by('model-note').textContent =
