@@ -58,6 +58,15 @@ test('video preparation follows the attachment opened by a search result', async
     assert.equal(match.evidence.slot, 1);
     assert.equal(p.media[1].type, 'video');
     assert.deepEqual(match.video, { src: '/original', variants: p.media[1].variants });
+    p.quoteId = '2';
+    p.context = {
+      quotes: [{ ...post('2', 'Turbulent river'), media: [{ type: 'video', src: '/quoted' }] }],
+      thread: []
+    };
+    lib.savePage('a', [p], '');
+    const [quote] = await hits('turbulent');
+    assert.equal(quote.evidence.postId, '2');
+    assert.equal(quote.video?.src, '/quoted');
   } finally {
     lib.db.close();
   }

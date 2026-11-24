@@ -1,5 +1,6 @@
-import type { Post, PostPart } from '../shared/contracts.js';
+import type { Post, PostPart, VideoAttachment } from '../shared/contracts.js';
 import type { Evidence } from '../shared/discovery.js';
+import { originalQuality } from './video.js';
 import { el, marked } from './dom.js';
 
 export function contextLabel(e: Evidence) {
@@ -9,7 +10,8 @@ export function contextLabel(e: Evidence) {
   return (e.source === 'image' ? 'Text in image ' : 'Alt text · attachment ') + (e.slot + 1);
 }
 
-export function contextReader(post: Post, terms: string[], demo: boolean) {
+export function contextReader(post: Post, terms: string[], demo: boolean,
+  player: (media: VideoAttachment, id: string) => HTMLVideoElement) {
   const section = el('section', 'post-context');
   const quotes = new Map(post.context?.quotes.map((p) => [p.id, p]));
   function link(id: string) {
@@ -34,13 +36,10 @@ export function contextReader(post: Post, terms: string[], demo: boolean) {
         im.alt = m.alt || 'Attached photo';
         block.append(im);
       } else if (m.type !== 'unavailable' && m.src) {
-        const v = el('video');
-        v.controls = true;
-        v.playsInline = true;
-        v.preload = 'none';
-        v.src = m.src;
-        if (m.poster) v.poster = m.poster;
+        const v = player(m, p.id);
         block.append(v);
+        const original = originalQuality(v);
+        if (original) block.append(original);
       }
     }
     if (!demo) block.append(link(p.id));

@@ -2,7 +2,7 @@ import { contextReader } from './post-context.js';
 import type { Catalog, Hit, ReaderData } from '../shared/discovery.js';
 import type { LibraryResponse } from '../shared/contracts.js';
 import { action, api, by, dateText, el, marked, notice, problem } from './dom.js';
-import { releaseVideo, videoLoader } from './video.js';
+import { originalQuality, releaseVideo, videoLoader } from './video.js';
 
 export function reader(
   account: () => LibraryResponse,
@@ -22,7 +22,7 @@ export function reader(
   dlg.addEventListener('close', () => {
     version++;
     videos.clear();
-    releaseVideo(content.querySelector('video'));
+    content.querySelectorAll('video').forEach(releaseVideo);
     content.replaceChildren();
     opener?.focus({ preventScroll: true });
   });
@@ -35,7 +35,7 @@ export function reader(
       data = loaded;
       hit = h;
       slot = h.evidence.postId ? 0 : Math.max(0, h.evidence.slot);
-      draw();
+      draw(h.evidence.postId);
       if (!dlg.open) {
         opener = document.activeElement as HTMLElement;
         dlg.showModal();
@@ -70,9 +70,9 @@ export function reader(
     link.rel = 'noopener';
     return link;
   }
-  function draw() {
+  function draw(contextId?: string) {
     const p = data.post;
-    releaseVideo(content.querySelector('video'));
+    content.querySelectorAll('video').forEach(releaseVideo);
     content.replaceChildren();
     const byline = el('div', 'byline');
     byline.append(
@@ -87,11 +87,11 @@ export function reader(
     const m = p.media[slot],
       photo = data.photos.find((f) => f.slot === slot);
     const playable = (m?.type === 'video' || m?.type === 'animated_gif') && m.src;
-    if (!playable) videos.clear();
     if (m) {
       const fig = el('figure', 'figure'),
         frame = el('div', 'image-frame');
       fig.append(frame);
+      let qualityLink;
       if (m.type === 'photo') {
         const img = el('img');
         img.alt = m.alt || 'Bookmarked image';
@@ -134,7 +134,9 @@ export function reader(
         }
         img.onerror = () => frame.replaceChildren(el('p', 'muted', 'Image unavailable.'));
       } else if (playable) {
-        frame.append(videos.take(m));
+        const player = videos.take(m, !contextId);
+        frame.append(player);
+        qualityLink = originalQuality(player);
       } else {
         if (m.poster) {
           const img = el('img');
@@ -148,13 +150,7 @@ export function reader(
       bar.append(
         el('span', '', (m.type === 'photo' ? 'Image' : 'Attachment') + ' ' + (slot + 1) + ' of ' + p.media.length)
       );
-      if (playable && frame.querySelector('video source')) {
-        const original = el('a', 'textlink', 'Original quality ↗');
-        original.href = m.src!;
-        original.target = '_blank';
-        original.rel = 'noopener';
-        bar.append(original);
-      }
+      if (qualityLink) bar.append(qualityLink);
       if (p.media.length > 1) {
         const nav = el('span');
         for (const [label, d] of [
@@ -182,7 +178,12 @@ export function reader(
       details.append(t);
       content.append(details);
     }
-    content.append(contextReader(p,hit.terms,account().demo));
+    content.append(contextReader(p, hit.terms, account().demo, (media, id) => {
+      const selected = id === contextId;
+      if (selected) contextId = undefined;
+      return videos.take(media, selected);
+    }));
+    videos.clear();
     if (!account().demo)
       content.append(
         action(
