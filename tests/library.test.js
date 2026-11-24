@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { library } from '../lib/database.ts';
-import { normalizePage, authorization } from '../lib/x.js';
+import { normalizePage, authorization } from '../lib/x.ts';
 import { makeServer } from '../server.js';
 
 test('media keeps attachment order and selects the highest bitrate playable MP4', () => {

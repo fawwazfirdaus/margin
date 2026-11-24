@@ -4,7 +4,7 @@ export type ReviewState = 'inbox' | 'kept' | 'archive';
 export type MediaAttachment =
   | { type: 'photo'; src: string; alt?: string; poster?: string }
   | { type: 'video' | 'animated_gif'; src?: string; poster?: string; alt?: string }
-  | { type: 'unavailable' };
+  | { type: 'unavailable'; poster?: string; alt?: string };
 
 export interface Post {
   id: string;

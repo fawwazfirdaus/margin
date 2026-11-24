@@ -4,7 +4,7 @@ import { readFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { library } from './lib/database.ts';
-import { authorization, exchange, fetchPage, removeBookmark, fetchPost } from './lib/x.js';
+import { authorization, exchange, fetchPage, removeBookmark, fetchPost } from './lib/x.ts';
 import { samples } from './lib/sample.ts';
 
 const root = fileURLToPath(new URL('./public/', import.meta.url));
