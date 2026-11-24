@@ -1,3 +1,4 @@
+import { directLinkWorker, scanLinkedPosts } from './link-preview.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import type { DatabaseSync } from 'node:sqlite';
@@ -37,6 +38,7 @@ function title(value: unknown) {
 }
 
 export function discovery(db: DatabaseSync, live: boolean) {
+  const stopLinks=live?directLinkWorker(db):undefined;
   const worker = live ? indexWorker(db) : undefined;
   const queryVector = worker?.query || (async () => undefined);
   async function dispatch(req: IncomingMessage, res: ServerResponse, owner: string, path: string, url: URL) {
@@ -78,6 +80,14 @@ export function discovery(db: DatabaseSync, live: boolean) {
       };
       return send(c);
     }
+    if(post && path==='/api/discover/index-links') {
+      const v=object(await jsonBody(req));
+      return send(await scanLinkedPosts(db,owner,v.includeShort===true));
+    }
+    if(post && path==='/api/discover/retry-links') {
+      db.prepare("UPDATE linked_sources SET status='pending' WHERE status='failed' AND book IN(SELECT seq FROM bookmarks WHERE owner=?)").run(owner);
+      return send({ok:true});
+    }
     if (get && path === '/api/discover/status') {
       const counts = db
         .prepare(
@@ -91,6 +101,7 @@ export function discovery(db: DatabaseSync, live: boolean) {
         )
         .get(embedModel, owner)!;
       return send({
+        links: db.prepare("SELECT count(*) total,count(CASE WHEN l.status='indexed' THEN 1 END) indexed,count(CASE WHEN status='pending' THEN 1 END) pending,count(CASE WHEN status='failed' THEN 1 END) failed FROM linked_sources l JOIN bookmarks b ON b.seq=l.book WHERE owner=?").get(owner),
         total: counts.reduce((sum, r) => sum + Number(r.n), 0),
         ready: n('ready'),
         empty: n('empty'),
@@ -99,7 +110,7 @@ export function discovery(db: DatabaseSync, live: boolean) {
         embedded: Number(em.ready),
         modelError: worker?.error() || '',
         hosted: hostedAvailable(),embeddingProvider:embedModel,askProvider
-      } satisfies Coverage & { hosted: boolean; embeddingProvider:string; askProvider:string });
+      } satisfies Coverage & { links:unknown; hosted: boolean; embeddingProvider:string; askProvider:string });
     }
     if (post && path === '/api/discover/search') {
       const v = object(await jsonBody(req));
@@ -234,5 +245,5 @@ export function discovery(db: DatabaseSync, live: boolean) {
     }
     throw fail(404, 'Unknown library action.');
   }
-  return { dispatch, close: () => worker?.stop() };
+  return { dispatch, close: () => {stopLinks?.();worker?.stop();} };
 }
