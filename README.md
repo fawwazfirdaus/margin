@@ -73,10 +73,16 @@ Post text in the reader contains clickable links. **Preview linked post** displa
 
 Use **Index coverage → Linked posts** for batch indexing. Select **Also resolve t.co short links** to include links whose destinations are unknown. The queue saves progress between batches. External websites, links to a bookmark's own media, and restricted or empty previews contribute no text. Link lookups use no X developer credits. Embeddings use the configured provider and can use OpenAI credits.
 
-### Free thread-part import
+### Unroll a public thread from one bookmark
+
+Open a real bookmark and click **Unroll thread**. Margin sends that single post ID to [FxEmbed’s documented thread endpoint](https://github.com/FxEmbed/FxEmbed/blob/main/docs/specs/fxtwitter-openapi.json). It works from a root, middle, or final post when the provider returns the chain. The action requires no FxEmbed key or X developer credits. Margin keeps only posts by the bookmarked author connected by reply edges, saves their text and supported media, and indexes the parts under the original bookmark for search and Ask. Existing manual selections and API-derived context are preserved. Use **Refresh public thread** to check again.
+
+This is a third-party lookup triggered by your click. FxEmbed receives the public post ID. Margin sends no X login, API credentials or list of bookmarks. Returned coverage depends on provider availability and accessible posts. The configured embedding provider may charge for indexing the text.
+
+### Manual thread-part import
 
 Open a bookmark and expand **Import thread parts · no X credits**. Copy a selection of posts from the thread on X and paste it into the reader, or paste their post permalinks. Review the URLs in reading order and choose **Fetch and index these parts**. Margin fetches the available public post text, keeps it attached to the bookmark, and makes it searchable and citable. Opening a search match jumps to that part. **Clear selection** removes the grouping and any search evidence that has no other source.
 
-**Find connected replies in library** uses stored parent-post and author IDs. You can also supply X API JSON containing `id`, `author_id`, and `referenced_tweets` to discover a connected same-author chain. Replies from third parties and quote relationships do not establish a self-thread. Manually selected parts are labeled separately. X's free public embed can fetch a known public post; it does not enumerate the children of an arbitrary post. A clipboard selection may omit links on some clients. Review the selected URLs before importing.
+**Find connected replies in library** uses stored parent-post and author IDs. You can also supply X API JSON containing `id`, `author_id`, and `referenced_tweets` to discover a connected same-author chain. Replies from third parties and quote relationships do not establish a self-thread. Manually selected parts are labeled separately. X’s own oEmbed endpoint fetches known post URLs. Margin’s one-click discovery uses FxEmbed. A clipboard selection may omit links on some clients. Review the selected URLs before importing.
 
 Link indexing follows one additional hop from a linked post. Only X/Twitter status URLs or t.co redirects ending at a status are eligible to contribute text. External sites are never fetched. This does not trigger paid X thread search. Embeddings follow your configured provider's pricing.
