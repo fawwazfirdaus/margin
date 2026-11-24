@@ -6,13 +6,13 @@ export function startThreads(db: DatabaseSync, owner: string, retry = false) {
   try {
     db.prepare(
       `INSERT INTO thread_jobs(book) SELECT b.seq FROM bookmarks b LEFT JOIN public_unrolls u ON u.book=b.seq
-      WHERE owner=? AND id<>'' AND id NOT GLOB '*[^0-9]*' AND u.book IS NULL ON CONFLICT DO NOTHING`
+      WHERE owner=? AND id<>'' AND id NOT GLOB '*[^0-9]*' AND u.quotes IS NULL ON CONFLICT DO NOTHING`
     ).run(owner);
     if (retry)
       db.prepare(
         "UPDATE thread_jobs SET state='waiting',attempts=0,ready=0,reason=NULL WHERE state='failed' AND book IN(SELECT seq FROM bookmarks WHERE owner=?)"
       ).run(owner);
-    db.prepare('INSERT INTO thread_runs(owner,active) VALUES(?,1) ON CONFLICT(owner) DO UPDATE SET active=1').run(
+    db.prepare('INSERT INTO thread_runs(owner,active) VALUES(?,1) ON CONFLICT(owner) DO UPDATE SET active=1,paused=0').run(
       owner
     );
     db.exec('COMMIT');
@@ -32,7 +32,7 @@ export function threadProgress(db: DatabaseSync, owner: string) {
   const saved = db
     .prepare(
       `SELECT count(*) checked,count(CASE WHEN json_array_length(parts)>0 THEN 1 END) threads
-    FROM public_unrolls u JOIN bookmarks b ON b.seq=u.book WHERE b.owner=?`
+    FROM public_unrolls u JOIN bookmarks b ON b.seq=u.book WHERE b.owner=? AND u.quotes IS NOT NULL`
     )
     .get(owner)!;
   return {

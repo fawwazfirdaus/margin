@@ -87,7 +87,7 @@ export function discovery(db: DatabaseSync, live: boolean) {
     if(post && path==='/api/discover/thread-index'){
       if(owner.startsWith('demo-'))throw fail(400,'Connect your library first.');
       const v=object(await jsonBody(req));
-      if(v.action==='pause')db.prepare('UPDATE thread_runs SET active=0 WHERE owner=?').run(owner);
+      if(v.action==='pause')db.prepare('UPDATE thread_runs SET active=0,paused=1 WHERE owner=?').run(owner);
       else if(v.action==='start'||v.action==='retry')startThreads(db,owner,v.action==='retry');
       else throw fail(400,'Unknown thread index action.');
       return send(threadProgress(db,owner));

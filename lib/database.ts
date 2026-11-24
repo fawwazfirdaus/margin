@@ -28,6 +28,15 @@ export function library(path: string) {
           if (!db.prepare('SELECT 1 FROM bookmarks WHERE owner=? AND id=?').get(owner,p.id)) added++;
           save.run(owner, p.id, JSON.stringify(p));
         }
+        // A library-wide scan opts this account into enriching later imports.
+        if (posts.length && db.prepare('SELECT 1 FROM thread_runs WHERE owner=?').get(owner)) {
+          const enqueue = db.prepare(`INSERT OR IGNORE INTO thread_jobs(book)
+            SELECT b.seq FROM bookmarks b LEFT JOIN public_unrolls u ON b.seq=u.book
+            WHERE b.owner=? AND b.id=? AND u.quotes IS NULL`);
+          let queued = 0;
+          for (const p of posts) if (/^\d{1,20}$/.test(p.id)) queued += Number(enqueue.run(owner, p.id).changes);
+          if (queued) db.prepare('UPDATE thread_runs SET active=1 WHERE owner=? AND paused=0').run(owner);
+        }
         db.prepare('INSERT OR REPLACE INTO cursors VALUES(?,?)').run(owner,next);
         db.exec('COMMIT');
         return added;
