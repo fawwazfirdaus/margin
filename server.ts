@@ -1,5 +1,5 @@
 import { linkPreview } from './lib/link-preview.ts';
-import { contextRequests, enrichPost, preserveContext } from './lib/post-context.ts';
+import { contextRequests, enrichPost, mergeBookmarkPage, preserveContext } from './lib/post-context.ts';
 import type { Post, Preview } from './shared/contracts.ts';
 import { scriptAsset } from './lib/assets.ts';
 import { discovery, jsonBody } from './lib/discovery-api.ts';
@@ -162,15 +162,11 @@ export function makeServer(config: AppConfig, lib: ReturnType<typeof library>, t
           const cursor = lib.cursor(session.owner);
           const page = await fetchPage(user,cursor,transport);
           if (cursor && cursor === page.next) throw fail(502,'X repeated a page. Try importing later.');
-          const posts:Post[]=[];
-          const contextTransport=contextRequests(transport);
-          for(const p of page.posts){
+          const posts=page.posts.map(p=>{
             const old=db.prepare('SELECT content FROM bookmarks WHERE owner=? AND id=?').get(session.owner,p.id);
-            const full=await enrichPost(p,user,contextTransport);
-            posts.push(preserveContext(full,old?JSON.parse(String(old.content)):undefined));
-          }
-          const added = lib.savePage(session.owner,posts,page.next);
-          page.partial ||= posts.some(p=>p.context?.warning);
+            return mergeBookmarkPage(p,old?JSON.parse(String(old.content)):undefined);
+          });
+          const added=lib.savePage(session.owner,posts,page.next);
           return send(200,{added,more:Boolean(page.next),partial:page.partial});
         } catch (e) {
           if (errorMessage(e).includes('HTTP 401')) tokens.delete(session.id);

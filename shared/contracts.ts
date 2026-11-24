@@ -16,6 +16,7 @@ export interface PostPart {
   authorId?: string;
   conversationId?: string;
   parentId?: string;
+  parentAuthorId?: string;
   quoteId?: string;
   links?: { url: string; expanded: string }[];
   replyCount?: number;

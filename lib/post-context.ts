@@ -173,3 +173,21 @@ export function preserveContext(post: Post, previous?: Post): Post {
   }
   return { ...post, context: { ...post.context, thread: parts, quotes } };
 }
+
+// A bookmark page already contains expansions. Keep matching, previously fetched
+// context without starting a separate billable conversation search on every import.
+export function mergeBookmarkPage(post: Post, previous?: Post): Post {
+  if(!previous?.context) return post;
+  const old=previous.context;
+  const thread=post.conversationId && post.conversationId===previous.conversationId && post.authorId===previous.authorId ? old.thread : [];
+  const known=new Map([...old.quotes,...(post.context?.quotes||[])].map(p=>[p.id,p]));
+  const quotes:PostPart[]=[],seen=new Set([post.id]);
+  for(const part of [post,...thread]){
+    let id=part.quoteId;
+    while(id && !seen.has(id) && known.has(id)){
+      seen.add(id);const quote=known.get(id)!;quotes.push(quote);id=quote.quoteId;
+    }
+  }
+  const same=previous.quoteId===post.quoteId && previous.conversationId===post.conversationId && previous.authorId===post.authorId;
+  return {...post,context:{thread,quotes,checked:same?old.checked:undefined,warning:same?old.warning:undefined}};
+}

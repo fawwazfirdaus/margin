@@ -20,6 +20,7 @@ type LinkEntities = { urls?: {url:string; expanded_url?:string}[] };
 interface XPost {
   entities?: LinkEntities;
   conversation_id?: string;
+  in_reply_to_user_id?: string;
   referenced_tweets?: {type:string; id:string}[];
   public_metrics?: {reply_count?:number};
   id: string;
@@ -106,7 +107,7 @@ export function normalizePage(payload: XPage) {
     const entities=[...(p.entities?.urls||[]),...(p.note_tweet?.entities?.urls||[]),...(p.note_post?.entities?.urls||[])];
     const links=new Map(entities.filter(e=>e.expanded_url && /^https?:\/\//i.test(e.expanded_url)).map(e=>[e.url,e.expanded_url!]));
     return { ...(links.size ? {links:[...links].map(([url,expanded])=>({url,expanded}))} : {}),id:p.id, authorId:p.author_id, conversationId:p.conversation_id,
-      parentId:p.referenced_tweets?.find(r=>r.type==='replied_to')?.id,
+      parentAuthorId:p.in_reply_to_user_id,parentId:p.referenced_tweets?.find(r=>r.type==='replied_to')?.id,
       quoteId:p.referenced_tweets?.find(r=>r.type==='quoted')?.id,replyCount:p.public_metrics?.reply_count, author: author?.name || 'X author', handle: author?.username || '',
       body: p.note_tweet?.text || p.note_post?.text || p.text || '', date: p.created_at || '',
       media: (p.attachments?.media_keys || []).map(key => attachment(media.get(key))) };
@@ -125,7 +126,7 @@ export function normalizePage(payload: XPage) {
 }
 
 export const contextFields = {
-  'tweet.fields':'created_at,attachments,author_id,note_tweet,conversation_id,referenced_tweets,public_metrics,entities',
+  'tweet.fields':'created_at,attachments,author_id,note_tweet,conversation_id,in_reply_to_user_id,referenced_tweets,public_metrics,entities',
   expansions:'author_id,attachments.media_keys,referenced_tweets.id,referenced_tweets.id.author_id',
   'media.fields':'url,preview_image_url,type,variants,alt_text'
 };
