@@ -1,9 +1,12 @@
+import { articleView, photoFrame, transcript } from './source-media.js';
 import { linkedText, linkPreviews, previewCard } from './linked-post.js';
 import type { Post, PostPart } from '../shared/contracts.js';
-import type { Evidence } from '../shared/discovery.js';
+import type { Evidence, Hit, ReaderData } from '../shared/discovery.js';
 import { el } from './dom.js';
 
 export function contextLabel(e: Evidence) {
+  if (e.source === 'article') return 'X Article · ' + (e.author || '');
+  if (e.source === 'image' && e.postId) return 'Text in image ' + ((e.attachment ?? 0) + 1) + ' · ' + (e.author || '');
   if (e.source === 'selected') return 'Selected thread part · '+(e.author||'');
   if (e.source === 'linked') return 'Linked post · '+(e.author||'');
   if (e.source === 'quote') return 'Quoted post · ' + (e.author || '');
@@ -12,7 +15,8 @@ export function contextLabel(e: Evidence) {
   return (e.source === 'image' ? 'Text in image ' : 'Alt text · attachment ') + (e.slot + 1);
 }
 
-export function contextReader(post: Post, terms: string[], demo: boolean) {
+export function contextReader(post: Post, hit: Hit, photos: ReaderData['photos'], demo: boolean) {
+  const terms = hit.terms;
   const section = el('section', 'post-context');
   const quotes = new Map(post.context?.quotes.map((p) => [p.id, p]));
   function link(id: string) {
@@ -29,13 +33,14 @@ export function contextReader(post: Post, terms: string[], demo: boolean) {
     const text = el('p');
     text.append(linkedText(p, terms));
     block.append(text);
-    for (const m of p.media) {
+    if (p.article) block.append(articleView(p, terms));
+    for (const [attachment, m] of p.media.entries()) {
       if (m.type === 'photo') {
-        const im = el('img');
-        im.loading = 'lazy';
-        im.src = m.src;
-        im.alt = m.alt || 'Attached photo';
-        block.append(im);
+        const photo = photos.find(f => f.postId === p.id && f.attachment === attachment);
+        const frame = photoFrame(m, photo, hit);
+        frame.querySelector('img')!.loading = 'lazy';
+        block.append(frame);
+        if (photo?.text) block.append(transcript(photo, hit));
       } else if (m.type !== 'unavailable' && m.src) {
         const v = el('video');
         v.controls = true;

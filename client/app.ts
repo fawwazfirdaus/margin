@@ -101,7 +101,7 @@ function card(h: Hit) {
   if (h.evidence.source === 'post' && copy.startsWith(prefix)) copy = copy.slice(prefix.length);
   text.append(marked(copy || 'Media bookmark', h.terms));
   left.append(text);
-  if (h.evidence.slot >= 0)
+  if (h.evidence.source !== 'post')
     left.append(
       el(
         'small',

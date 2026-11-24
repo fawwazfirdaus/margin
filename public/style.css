@@ -23,3 +23,7 @@ dialog{color:var(--ink);background:var(--paper);border:1px solid var(--line);bor
 .free-thread{margin:16px 0}.free-thread label,.free-thread button{margin-top:9px}.free-thread textarea{display:block;resize:vertical}
 
 .free-thread > small[role=status]{display:block;margin:.35rem 0 .75rem}
+
+.related-post .image-frame{margin:8px 0}
+.related-post .image-frame img{margin:0}
+.native-article p{white-space:pre-wrap;overflow-wrap:anywhere}

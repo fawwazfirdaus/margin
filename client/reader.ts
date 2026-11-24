@@ -1,3 +1,4 @@
+import { articleView, photoFrame, transcript } from './source-media.js';
 import {freeThread} from './free-thread.js';
 import { linkedText,linkPreviews } from './linked-post.js';
 import { contextReader } from './post-context.js';
@@ -38,7 +39,13 @@ export function reader(
         dlg.showModal();
       }
       dlg.scrollTop = 0;
-      if(h.evidence.postId)content.querySelector<HTMLElement>('[data-context-id="'+CSS.escape(h.evidence.postId)+'"]')?.scrollIntoView({block:'center'});
+      const e = h.evidence;
+      if (e.postId) {
+        const id = CSS.escape(e.postId);
+        const selector = e.source === 'article' ? `[data-article-key="${id}/${e.paragraph}"]` :
+          e.source === 'image' ? `[data-photo-key="${id}/${e.attachment}"]` : `[data-context-id="${id}"]`;
+        content.querySelector<HTMLElement>(selector)?.scrollIntoView({block: 'center'});
+      }
     } catch (e) {
       problem(e);
     }
@@ -78,6 +85,7 @@ export function reader(
     const body = el('p', 'post-body');
     body.append(linkedText(p, hit.terms));
     content.append(body);
+    if (p.article) content.append(articleView(p, hit.terms));
     const m = p.media[slot],
       photo = data.photos.find((f) => f.slot === slot);
     if (m) {
@@ -85,46 +93,7 @@ export function reader(
         frame = el('div', 'image-frame');
       fig.append(frame);
       if (m.type === 'photo') {
-        const img = el('img');
-        img.alt = m.alt || 'Bookmarked image';
-        img.src = m.src;
-        frame.append(img);
-        if (photo && hit.evidence.slot === slot && hit.evidence.source === 'image') {
-          const overlay = el('canvas', 'overlay');
-          overlay.setAttribute('aria-hidden', 'true');
-          frame.append(overlay);
-          const paint = () => {
-            overlay.width = img.naturalWidth;
-            overlay.height = img.naturalHeight;
-            const ctx = overlay.getContext('2d');
-            if (!ctx) return;
-            const terms = hit.terms.filter(Boolean);
-            const normalized = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
-            const exact = photo.words.filter(([word]) => terms.some((t) => normalized(word).includes(t)));
-            let boxes = exact;
-            if (!exact.length) {
-              // A paraphrase may share no query words. Locate the source passage in OCR reading order.
-              const quote = normalized(hit.evidence.text);
-              const words = photo.words.map(([word]) => normalized(word));
-              const start = quote ? words.join('').indexOf(quote) : -1;
-              if (start >= 0) {
-                let cursor = 0;
-                boxes = photo.words.filter((_, idx) => {
-                  const left = cursor;
-                  cursor += words[idx].length;
-                  return cursor > start && left < start + quote.length;
-                });
-              }
-            }
-            for (const [, x, y, r, b] of boxes) {
-              ctx.fillStyle = 'rgba(255,202,47,.43)';
-              ctx.fillRect(x * overlay.width, y * overlay.height, (r - x) * overlay.width, (b - y) * overlay.height);
-            }
-          };
-          img.onload = paint;
-          if (img.complete) paint();
-        }
-        img.onerror = () => frame.replaceChildren(el('p', 'muted', 'Image unavailable.'));
+        frame.replaceWith(photoFrame(m, photo, hit));
       } else if (m.type !== 'unavailable' && m.src) {
         const v = el('video');
         v.src = m.src;
@@ -168,15 +137,7 @@ export function reader(
       fig.append(bar);
       content.append(fig);
     }
-    if (photo?.text) {
-      const details = el('details');
-      details.open = hit.evidence.source === 'image' && hit.evidence.slot === slot;
-      details.append(el('summary', '', 'Text in this image'));
-      const t = el('p', 'transcript');
-      t.append(marked(photo.text, hit.terms));
-      details.append(t);
-      content.append(details);
-    }
+    if (photo?.text) content.append(transcript(photo, hit));
     if(hit.evidence.source==='linked'){
       const linked=data.linked.find(l=>l.id===hit.evidence.postId);
       if(linked){
@@ -187,7 +148,7 @@ export function reader(
         content.append(source);
       }
     }
-    content.append(contextReader(p,hit.terms,account().demo),linkPreviews(p.id,p,hit.terms));
+    content.append(contextReader(p,hit,data.photos,account().demo),linkPreviews(p.id,p,hit.terms));
     const activeVersion=version;
     content.append(freeThread(data,hit.terms,async()=>{
       await refresh();
