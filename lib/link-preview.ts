@@ -1,4 +1,4 @@
-import { recordPreview, sourceLinks } from './linked-sources.ts';
+import { recordPreview, reachableLinks } from './linked-sources.ts';
 import type { DatabaseSync } from 'node:sqlite';
 import type { Post, Preview } from '../shared/contracts.ts';
 import { shortLink, xPost } from '../shared/post-links.ts';
@@ -13,8 +13,10 @@ export async function linkPreview(
   const row = db.prepare('SELECT seq,content FROM bookmarks WHERE owner=? AND id=?').get(owner, bookmark);
   if (!row) throw Object.assign(Error('Bookmark not found.'), { status: 404 });
   const post = JSON.parse(String(row.content)) as Post;
-  const result = await resolveLink(db, owner, post, href, transport);
-  recordPreview(db, owner, Number(row.seq), href, sourceLinks(post).get(href)!, result);
+  const mapped=reachableLinks(db,Number(row.seq),post).get(href);
+  if (!mapped) throw Object.assign(Error('Link not found on this bookmark.'), { status: 404 });
+  const result = await resolveLink(db, owner, post, href, mapped, transport);
+  recordPreview(db, owner, Number(row.seq), href, mapped, result);
   return result;
 }
 async function resolveLink(
@@ -22,12 +24,12 @@ async function resolveLink(
   owner: string,
   post: Post,
   href: string,
+  mapped: string,
   transport: typeof fetch
 ): Promise<Preview> {
   const bookmark = post.id;
   const parts = [post, ...(post.context?.quotes || []), ...(post.context?.thread || [])];
-  let url = sourceLinks(post).get(href);
-  if (!url) throw Object.assign(Error('Link not found on this bookmark.'), { status: 404 });
+  let url=mapped;
   if (shortLink(url)) {
     // Read only X's redirect. Never fetch an arbitrary destination from the server.
     const res = await transport('https://t.co/' + new URL(url).pathname.slice(1), {
@@ -60,7 +62,10 @@ async function resolveLink(
   const known = parts.find((p) => p.id === target.id);
   if (local || known)
     return { kind: 'saved', url: target.url, post: local ? JSON.parse(String(local.content)) : known! };
-  const query = new URLSearchParams({ url: target.url, omit_script: 'true', dnt: 'true' });
+  // The embed endpoint accepts /i/status/:id even when /i/web/status/:id
+  // returns an HTML 404 for the same public post.
+  const embedUrl=target.url.replace('https://x.com/i/web/status/','https://x.com/i/status/');
+  const query = new URLSearchParams({ url: embedUrl, omit_script: 'true', dnt: 'true' });
   const res = await transport('https://publish.x.com/oembed?' + query, {
     redirect: 'error',
     signal: AbortSignal.timeout(10000)
@@ -75,10 +80,11 @@ async function resolveLink(
           ? 'X does not offer a public preview for this post.'
           : 'X could not load this preview. Try again later.'
     };
-  const data = (await res.json()) as { html?: string; author_name?: string; type?: string };
+  const data = (await res.json()) as { html?: string; url?:string; author_name?: string; type?: string };
   if (data.type !== 'rich' || typeof data.html !== 'string')
     return { kind: 'unavailable', url: target.url, message: 'X returned no post preview.' };
-  return { kind: 'public', url: target.url, author: data.author_name || 'X post', html: data.html };
+  const canonical=data.url && xPost(data.url);
+  return { kind: 'public', url: canonical && canonical.id===target.id ? canonical.url : target.url, author: data.author_name || 'X post', html: data.html };
 }
 
 // Small resumable batches use only URLs present on this owner's bookmarks.

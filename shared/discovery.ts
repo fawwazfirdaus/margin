@@ -1,3 +1,4 @@
+import type { SelectedPart } from './free-thread.js';
 import type { Bookmark, ReviewState } from './contracts.ts';
 
 export interface Filters {
@@ -14,7 +15,7 @@ export interface SearchSpec {
   filters: Filters;
 }
 export interface Evidence {
-  source: 'post' | 'alt' | 'image' | 'quote' | 'thread' | 'linked';
+  source: 'post' | 'alt' | 'image' | 'quote' | 'thread' | 'linked' | 'selected';
   postId?: string;
   author?: string;
   slot: number;
@@ -62,6 +63,7 @@ export interface PhotoJob {
 }
 export interface ReaderData {
   post: Bookmark;
+  selectedThread:SelectedPart[];
   linked: {slot:number;id:string;url:string;author:string;body:string}[];
   collections: number[];
   photos: { slot: number; words: WordBox[]; text: string }[];

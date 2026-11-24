@@ -145,7 +145,7 @@ export async function search(
   const rows = db
     .prepare(
       `SELECT p.pid,p.book,p.source,p.slot,p.body,p.model,p.vector,l.target AS linkedId,l.author AS linkedAuthor FROM passages p
-    LEFT JOIN linked_sources l ON p.source='linked' AND p.slot=l.lid AND p.book=l.book
+    LEFT JOIN linked_sources l ON p.source IN ('linked','selected') AND p.slot=l.lid AND p.book=l.book
     JOIN bookmarks b ON b.seq=p.book WHERE ${where}`
     )
     .all(...args);
