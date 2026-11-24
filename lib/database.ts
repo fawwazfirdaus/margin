@@ -46,8 +46,6 @@ export function library(path: string) {
       }));
     },
     edit(owner: string, id: string, {state, tags}: BookmarkEdit) {
-      if (state !== undefined && !['inbox','kept','archive'].includes(state)) throw new Error('Unknown review state.');
-      if (tags !== undefined && (!Array.isArray(tags) || tags.length > 30 || tags.some(t => typeof t !== 'string' || t.length > 48))) throw new Error('Use up to 30 tags, each under 49 characters.');
       const normalized = tags && JSON.stringify([...new Set(tags.map(t => t.trim().toLowerCase()).filter(Boolean))]);
       return db.prepare('UPDATE bookmarks SET state=coalesce(?,state), tags=coalesce(?,tags) WHERE owner=? AND id=?')
         .run(state ?? null, normalized ?? null, owner, id).changes;

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { library } from '../lib/database.ts';
 import { normalizePage, authorization } from '../lib/x.ts';
-import { makeServer } from '../server.js';
+import { makeServer } from '../server.ts';
 
 test('media keeps attachment order and selects the highest bitrate playable MP4', () => {
   const page=normalizePage({data:[{id:'123',attachments:{media_keys:['b','a','z','c']}}],includes:{media:[
@@ -73,6 +73,8 @@ test('OAuth login, private library, pagination, token expiry and logout through 
   assert.notEqual(cookie,demoCookie);
   assert.deepEqual((await (await req('/api/library')).json()).posts,[]);
   assert.equal((await (await req('/api/sync','POST')).json()).more,true);
+  assert.equal((await req('/api/posts/1','PATCH',{state:'invalid'})).status,400);
+  assert.equal((await req('/api/posts/1','PATCH',{tags:[1]})).status,400);
   assert.equal((await req('/api/posts/1','PATCH',{state:'kept',tags:['science']})).status,200);
   assert.equal((await (await req('/api/sync','POST')).json()).more,false);
   const state=await (await req('/api/library')).json();

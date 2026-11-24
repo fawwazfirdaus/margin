@@ -1,4 +1,4 @@
-import { createServer } from 'node:http';
+import { createServer, type IncomingMessage } from 'node:http';
 import { randomBytes, createHash } from 'node:crypto';
 import { readFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -6,18 +6,30 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { library } from './lib/database.ts';
 import { authorization, exchange, fetchPage, removeBookmark, fetchPost } from './lib/x.ts';
 import { samples } from './lib/sample.ts';
+import type { AppConfig, Transport, XAccount } from './lib/x.ts';
+import type {
+  AuthorizationResponse, BookmarkEdit, LibraryResponse, SuccessResponse, SyncResponse
+} from './shared/contracts.ts';
+
+type Reply = LibraryResponse | AuthorizationResponse | SyncResponse | SuccessResponse | { error: string };
+type Session = { id: string; owner: string; name: string };
+type PendingAuthorization = { state: string; verifier: string; expires: number; owner?: string };
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 
 const root = fileURLToPath(new URL('./public/', import.meta.url));
 const assets = new Map(Object.entries({
   '/':'index.html', '/app.js':'app.js', '/style.css':'style.css',
   ...Object.fromEntries(['tide.jpg','shore.jpg','drift.jpg','drift.mp4'].map(n=>['/media/'+n,'media/'+n]))
 }));
-const mime = { html:'text/html; charset=utf-8', js:'text/javascript', css:'text/css', jpg:'image/jpeg', mp4:'video/mp4' };
+const mime: Record<string,string> = { html:'text/html; charset=utf-8', js:'text/javascript', css:'text/css', jpg:'image/jpeg', mp4:'video/mp4' };
 const random = () => randomBytes(32).toString('base64url');
-const hash = s => createHash('sha256').update(s).digest('hex');
-const fail = (status, message) => Object.assign(new Error(message), { status });
+const hash = (s: string) => createHash('sha256').update(s).digest('hex');
+const fail = (status: number, message: string) => Object.assign(new Error(message), { status });
 
-async function jsonBody(req) {
+async function jsonBody(req: IncomingMessage): Promise<unknown> {
   let data = '';
   for await (const chunk of req) {
     data += chunk;
@@ -26,19 +38,35 @@ async function jsonBody(req) {
   try { return JSON.parse(data); } catch { throw fail(400,'Invalid JSON.'); }
 }
 
-export function makeServer(config, lib, transport = fetch) {
-  const pending = new Map(), tokens = new Map(), syncing = new Set();
+function parseBookmarkEdit(value: unknown): BookmarkEdit {
+  if (!value || typeof value !== 'object') throw fail(400,'Expected bookmark edits.');
+  const state = 'state' in value ? value.state : undefined;
+  const tags = 'tags' in value ? value.tags : undefined;
+  if (state !== undefined && state !== 'inbox' && state !== 'kept' && state !== 'archive') {
+    throw fail(400,'Unknown review state.');
+  }
+  if (tags !== undefined && (!Array.isArray(tags) || tags.length > 30 ||
+      !tags.every((tag: unknown) => typeof tag === 'string' && tag.length <= 48))) {
+    throw fail(400,'Use up to 30 tags, each under 49 characters.');
+  }
+  return {state, tags};
+}
+
+export function makeServer(config: AppConfig, lib: ReturnType<typeof library>, transport: Transport = fetch) {
+  const pending = new Map<string, PendingAuthorization>();
+  const tokens = new Map<string, XAccount>();
+  const syncing = new Set<string>();
   const {db} = lib;
   const ttl = 30 * 86400000;
   return createServer(async (req,res) => {
-    const send = (status,body) => {
+    const send = (status: number, body: Reply) => {
       res.writeHead(status, { 'Content-Type':'application/json' });
       res.end(JSON.stringify(body));
     };
-    const redirect = url => { res.writeHead(303, { Location:url }); res.end(); };
-    const sessionCookie = (value, age) => res.setHeader('Set-Cookie', 'margin_sid=' + value +
+    const redirect = (url: string) => { res.writeHead(303, { Location:url }); res.end(); };
+    const sessionCookie = (value: string, age: number) => res.setHeader('Set-Cookie', 'margin_sid=' + value +
       '; HttpOnly; SameSite=Lax; Path=/; Max-Age=' + age + (config.origin.startsWith('https:') ? '; Secure' : ''));
-    function newSession(owner,name) {
+    function newSession(owner: string, name: string): Session {
       const key = random(), id = hash(key);
       db.prepare('INSERT INTO sessions VALUES(?,?,?,?)').run(id,owner,name,Date.now()+ttl);
       sessionCookie(key, ttl/1000);
@@ -51,11 +79,12 @@ export function makeServer(config, lib, transport = fetch) {
       res.setHeader('Content-Security-Policy',"default-src 'self'; img-src 'self' https://*.twimg.com; media-src 'self' https://*.twimg.com; frame-ancestors 'none'; base-uri 'none'; object-src 'none'");
       if (req.headers.host !== new URL(config.origin).host) throw fail(403,'Open the configured Margin address.');
       if (req.method !== 'GET' && req.headers.origin !== config.origin) throw fail(403,'Request origin mismatch.');
-      const url = new URL(req.url, config.origin);
+      const url = new URL(req.url || '/', config.origin);
       const path = url.pathname;
-      if (req.method === 'GET' && assets.has(path)) {
-        const file = assets.get(path), bytes = await readFile(join(root,file));
-        res.setHeader('Content-Type', mime[file.split('.').at(-1)]);
+      const file = assets.get(path);
+      if (req.method === 'GET' && file) {
+        const bytes = await readFile(join(root,file));
+        res.setHeader('Content-Type', mime[file.slice(file.lastIndexOf('.')+1)]);
         if (file.endsWith('.mp4')) {
           res.setHeader('Accept-Ranges','bytes');
           if (req.headers.range) {
@@ -71,7 +100,9 @@ export function makeServer(config, lib, transport = fetch) {
         return res.end(bytes);
       }
       const key = /(?:^|;\s*)margin_sid=([\w-]+)/.exec(req.headers.cookie || '')?.[1];
-      let session = key && db.prepare('SELECT * FROM sessions WHERE id=? AND expires>?').get(hash(key),Date.now());
+      const row = key ? db.prepare('SELECT id,owner,name FROM sessions WHERE id=? AND expires>?')
+        .get(hash(key),Date.now()) : undefined;
+      let session = row as Session | undefined;
       if (req.method === 'GET' && path === '/api/library') {
         if (!session) {
           const owner = 'demo-' + random();
@@ -89,24 +120,24 @@ export function makeServer(config, lib, transport = fetch) {
         const manage = path === '/auth/manage';
         if (manage && session.owner.startsWith('demo-')) throw fail(403,'Connect your X library first.');
         const flow = authorization(config.clientId,config.origin,manage);
-        if (manage) flow.owner = session.owner;
-        pending.set(session.id,{...flow,expires:Date.now()+600000});
+        pending.set(session.id,{...flow,owner:manage ? session.owner : undefined,expires:Date.now()+600000});
         return send(200,{url:flow.url});
       }
       if (req.method === 'GET' && path === '/auth/callback') {
         const flow = pending.get(session.id);
         if (!flow || flow.expires < Date.now() || flow.state !== url.searchParams.get('state')) return redirect('/?auth=expired');
         pending.delete(session.id);
-        if (!url.searchParams.get('code')) return redirect('/?auth=cancelled');
+        const code = url.searchParams.get('code');
+        if (!code) return redirect('/?auth=cancelled');
         try {
-          const user = await exchange(url.searchParams.get('code'),flow.verifier,config,transport);
+          const user = await exchange(code,flow.verifier,config,transport);
           if (flow.owner && user.account !== flow.owner) throw new Error('Choose the X account that owns this library.');
           tokens.delete(session.id);
           db.prepare('DELETE FROM sessions WHERE id=?').run(session.id);
           const active = newSession(user.account,user.name);
           tokens.set(active.id,user);
           return redirect('/');
-        } catch (error) { return redirect('/?auth=error&message='+encodeURIComponent(error.message)); }
+        } catch (error) { return redirect('/?auth=error&message='+encodeURIComponent(errorMessage(error))); }
       }
       if (req.method === 'POST' && path === '/auth/signout') {
         tokens.delete(session.id); pending.delete(session.id);
@@ -125,7 +156,7 @@ export function makeServer(config, lib, transport = fetch) {
           const added = lib.savePage(session.owner,page.posts,page.next);
           return send(200,{added,more:Boolean(page.next),partial:page.partial});
         } catch (e) {
-          if (e.message.includes('HTTP 401')) tokens.delete(session.id);
+          if (errorMessage(e).includes('HTTP 401')) tokens.delete(session.id);
           throw e;
         } finally { syncing.delete(session.owner); }
       }
@@ -148,20 +179,21 @@ export function makeServer(config, lib, transport = fetch) {
           }
           return send(200,{ok:true});
         } catch (e) {
-          if (e.message.includes('HTTP 401')) tokens.delete(session.id);
+          if (errorMessage(e).includes('HTTP 401')) tokens.delete(session.id);
           throw e;
         } finally { syncing.delete(session.owner); }
       }
       if (req.method === 'PATCH' && path.startsWith('/api/posts/')) {
-        const fields = await jsonBody(req);
-        if (!fields || typeof fields !== 'object') throw fail(400,'Expected bookmark edits.');
-        try {
-          if (!lib.edit(session.owner,path.slice('/api/posts/'.length),fields)) throw fail(404,'Bookmark not found.');
-        } catch (error) { throw fail(error.status || 400,error.message); }
+        const fields = parseBookmarkEdit(await jsonBody(req));
+        if (!lib.edit(session.owner,path.slice('/api/posts/'.length),fields)) throw fail(404,'Bookmark not found.');
         return send(200,{ok:true});
       }
       throw fail(404,'Page not found.');
-    } catch (e) { send(e.status || 502,{error:e.message}); }
+    } catch (error) {
+      const status = error instanceof Error && 'status' in error && typeof error.status === 'number'
+        ? error.status : 502;
+      send(status,{error:errorMessage(error)});
+    }
   });
 }
 

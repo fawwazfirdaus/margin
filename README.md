@@ -36,7 +36,7 @@ Choose **Remove from X…** on the post. The first use requests the additional O
 
 ## Development
 
-Install development dependencies with `npm ci`. Run `npm run check` for strict type checking, syntax checks, and integration tests. Tests simulate the X API and use a temporary local server. The browser UI is in `public/`, HTTP routes are in `server.js`, and `lib/` contains the X integration, SQLite storage, and sample library.
+Install development dependencies with `npm ci`. Run `npm run check` for strict type checking, syntax checks, and integration tests. Tests simulate the X API and use a temporary local server. The browser UI is in `public/`, HTTP routes are in `server.ts`, and `lib/` contains the X integration, SQLite storage, and sample library.
 
 ## License
 
