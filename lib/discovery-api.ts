@@ -1,3 +1,4 @@
+import {unrollBookmark} from './public-unroll.ts';
 import { localThread,setThreadSelection } from './free-thread.ts';
 import { directLinkWorker, scanLinkedPosts } from './link-preview.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
@@ -80,6 +81,12 @@ export function discovery(db: DatabaseSync, live: boolean) {
           .map((r) => String(r.value))
       };
       return send(c);
+    }
+    if(post && path==='/api/discover/unroll'){
+      const v=object(await jsonBody(req));
+      const result=await unrollBookmark(db,owner,String(v.id||''));
+      syncText(db);
+      return send(result);
     }
     if(post && path==='/api/discover/thread-parts'){
       const v=object(await jsonBody(req,2_000_000)),id=String(v.id||'');
