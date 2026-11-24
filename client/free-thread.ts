@@ -6,6 +6,33 @@ import { api, el, action, marked } from './dom.js';
 export function freeThread(data: ReaderData, terms: string[], refresh: () => Promise<void>) {
   const { post, selectedThread } = data;
   const section = el('section', 'free-thread');
+  if (/^\d{1,20}$/.test(post.id)) {
+    const status = el('small', 'muted');
+    status.setAttribute('role', 'status');
+    const previous = post.context?.unroll;
+    status.textContent = previous
+      ? previous.related
+        ? previous.related + ' connected self-replies loaded via FxEmbed.'
+        : 'FxEmbed returned no connected self-replies.'
+      : 'Sends this post ID to FxEmbed. No X credits.';
+    const unroll = action(
+      previous ? 'Refresh public thread' : 'Unroll thread',
+      async () => {
+        unroll.disabled = true;
+        status.textContent = 'Looking up the author’s thread…';
+        try {
+          await api('/api/discover/unroll', 'POST', { id: post.id });
+          await refresh();
+        } catch (e) {
+          status.textContent = e instanceof Error ? e.message : 'Thread lookup failed.';
+        } finally {
+          unroll.disabled = false;
+        }
+      },
+      'primary'
+    );
+    section.append(unroll, status);
+  }
   if (selectedThread.length) {
     section.append(el('h3', '', 'Selected thread parts'));
     selectedThread.forEach((p, i) => {

@@ -21,3 +21,5 @@ dialog{color:var(--ink);background:var(--paper);border:1px solid var(--line);bor
 .linked-preview{border-left:2px solid var(--line);padding:4px 12px;margin:8px 0}.linked-preview>a{margin-left:14px}.linked-preview [aria-live]:not(:empty){margin:8px 0}.linked-preview p{white-space:pre-wrap;overflow-wrap:anywhere}.linked-preview img,.linked-preview video{display:block;max-width:100%;max-height:320px}.post-body a,.related-post p a{font:inherit;overflow-wrap:anywhere}
 
 .free-thread{margin:16px 0}.free-thread label,.free-thread button{margin-top:9px}.free-thread textarea{display:block;resize:vertical}
+
+.free-thread > small[role=status]{display:block;margin:.35rem 0 .75rem}
