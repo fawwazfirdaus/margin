@@ -19,7 +19,8 @@ Open <http://127.0.0.1:4173>. The sample posts, reader, keyword search, collecti
 - Open a result to read the post, browse its media, and see the matching passage. Image-text matches open the matching attachment. Closing the reader returns to the result list.
 - A **collection** contains bookmarks you choose. A **saved search** reruns a query and filters over the current library. The review queue, tags, Archive, and Keep remain account-specific.
 - For local semantic search, install [Ollama](https://ollama.com/) and run `ollama pull all-minilm`. Keep Ollama running on its default local port (11434). Margin builds normalized passage embeddings in the background, persists them in SQLite, and combines vector similarity with FTS5 keyword rankings. **Index coverage** reports progress. Keyword search works while the index is building.
-- For generated answers, run `ollama pull gpt-oss:20b` or set `MARGIN_CHAT_MODEL` to an installed local chat model that fits your machine. **Ask library** retrieves passages from the current view, returns citations, and opens each source in the reader. Exact counts like “How many of those are videos?” use the matching records. Without a chat model, Ask can show supporting excerpts. Video audio, external articles, and complete threads are outside the index.
+- For generated answers, run `ollama pull gpt-oss:20b` or set `MARGIN_CHAT_MODEL` to an installed local chat model that fits your machine. **Ask library** retrieves passages from the current view, returns citations, and opens each source in the reader. Exact counts like “How many of those are videos?” use the matching records. Without a chat model, Ask can show supporting excerpts. Video audio and the contents of external articles are outside the index.
+- To use OpenAI for both semantic search and Ask, set `MARGIN_AI_PROVIDER=openai` and `OPENAI_API_KEY` in the server’s ignored `.env`, then restart. Margin embeds searchable passage text and queries with `text-embedding-3-large` at 1,024 dimensions. Ask uses `gpt-6.2-sol` by default (override with `MARGIN_OPENAI_ASK_MODEL`) and sends only the question and selected text excerpts with `store: false`. Account data stays partitioned in Margin. Reindexing uses API credits. OCR still runs in the browser; any extracted **text** you index also becomes embedding input. Images and word-position boxes are not uploaded to OpenAI.
 - Optional hosted synthesis uses [Ollama Cloud](https://docs.ollama.com/cloud). Set `MARGIN_OLLAMA_CLOUD_KEY` and `MARGIN_CLOUD_MODEL` on your own server. Selecting the hosted option in Ask sends the question and up to six retrieved excerpts with author attribution to Ollama. Provider pricing and terms apply. Leave the option unchecked for local inference.
 
 ## Index text inside photos
@@ -38,6 +39,12 @@ The tab saves extracted text and word positions to the account's SQLite library 
 X charges for API reads. Photos, videos, and author details can add to the number of resources returned. Review the [X API pricing](https://docs.x.com/x-api/getting-started/pricing) before importing a large library.
 
 Imports update posts by ID and preserve tags and review decisions. Margin offers another page when X supplies a continuation token. X can stop supplying pages even when more posts are visible on its website. The included importer uses the official X API. For posts already recovered from a browser timeline, **Load full post and media from X** requests the individual post using API credits. Removing a bookmark directly on X leaves its previously imported copy in Margin.
+
+### Quoted posts and threads
+
+New API imports request quoted posts and follow nested quotes. For a bookmarked thread, Margin follows every available search page, then keeps the bookmarked author’s connected self-replies. The reader places the bookmark in thread order and links each related post to X. Quotes and thread text are indexed with their original authors and remain attached to the saved bookmark rather than becoming separate bookmarks.
+
+Older imports may lack these relationships. Open a bookmark and choose **Load quotes, author thread and media from X**, or use **Index coverage → Load context from X** for the next five unchecked bookmarks. X charges for post lookups and thread search. Older conversations can require full-archive search access. Unavailable references and failed lookups are shown as partial context; a single-bookmark refresh retries them. OpenAI credits cannot pay for X API calls.
 
 ### Remove a bookmark from X
 
