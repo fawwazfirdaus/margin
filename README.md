@@ -77,7 +77,9 @@ Use **Index coverage → Linked posts** for batch indexing. Select **Also resolv
 
 Open a real bookmark and click **Unroll thread**. Margin sends that single post ID to [FxEmbed’s documented thread endpoint](https://github.com/FxEmbed/FxEmbed/blob/main/docs/specs/fxtwitter-openapi.json). It works from a root, middle, or final post when the provider returns the chain. The action requires no FxEmbed key or X developer credits. Margin keeps only posts by the bookmarked author connected by reply edges, saves their text and supported media, and indexes the parts under the original bookmark for search and Ask. Existing manual selections and API-derived context are preserved. Use **Refresh public thread** to check again.
 
-This is a third-party lookup triggered by your click. FxEmbed receives the public post ID. Margin sends no X login, API credentials or list of bookmarks. Returned coverage depends on provider availability and accessible posts. The configured embedding provider may charge for indexing the text.
+**Index coverage → Whole threads → Index unchecked bookmarks** runs the same lookup across your library. It checkpoints each post, limits concurrent lookups and honors provider backoff. You can close the tab, pause the scan, or restart the server. A successful lookup with zero returned self-replies is recorded, so subsequent scans skip it. Transient failures retry and unavailable posts are counted separately. Full post text and the available author chain are searchable; embedding coverage is shown separately from discovery progress.
+
+This is a third-party lookup triggered by your click. FxEmbed receives the public post ID. Margin sends no X login or API credentials. A library-wide scan sends one post ID per request. Returned coverage depends on provider availability and accessible posts. The configured embedding provider may charge for indexing the text.
 
 ### Manual thread-part import
 
