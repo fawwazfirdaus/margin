@@ -15,8 +15,10 @@ export interface SearchSpec {
   filters: Filters;
 }
 export interface Evidence {
-  source: 'post' | 'alt' | 'image' | 'quote' | 'thread' | 'linked' | 'selected';
+  source: 'post' | 'alt' | 'image' | 'quote' | 'thread' | 'linked' | 'selected' | 'article';
   postId?: string;
+  attachment?: number;
+  paragraph?: number;
   author?: string;
   slot: number;
   text: string;
@@ -66,7 +68,7 @@ export interface ReaderData {
   selectedThread:SelectedPart[];
   linked: {slot:number;id:string;url:string;author:string;body:string}[];
   collections: number[];
-  photos: { slot: number; words: WordBox[]; text: string }[];
+  photos: { slot: number; postId?: string; attachment: number; words: WordBox[]; text: string }[];
 }
 export interface Coverage {
   threads:{active:boolean;waiting:number;unavailable:number;failed:number;checked:number;threads:number};

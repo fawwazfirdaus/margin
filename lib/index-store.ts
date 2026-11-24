@@ -1,3 +1,4 @@
+import { articleSections } from '../shared/articles.ts';
 import { withPublicThread } from './public-unroll.ts';
 import { threadSelection } from './free-thread.ts';
 import { reconcileLinks } from './linked-sources.ts';
@@ -8,8 +9,8 @@ import type { PhotoJob, ReaderData } from '../shared/discovery.ts';
 export function setupIndex(db: DatabaseSync) {
   db.exec('PRAGMA foreign_keys=ON');
   const version = Number(db.prepare('PRAGMA user_version').get()?.user_version);
-  if (version > 6) throw new Error('This library needs a newer version of Margin.');
-  if (version === 6) return;
+  if (version > 7) throw new Error('This library needs a newer version of Margin.');
+  if (version === 7) return;
   if (version === 0)
     db.exec(`BEGIN;
     CREATE TABLE dirty(book INTEGER PRIMARY KEY REFERENCES bookmarks(seq) ON DELETE CASCADE);
@@ -57,13 +58,22 @@ export function setupIndex(db: DatabaseSync) {
   if(version<5) db.exec(`BEGIN;
     CREATE TABLE public_unrolls(book INTEGER PRIMARY KEY REFERENCES bookmarks(seq) ON DELETE CASCADE,parts TEXT NOT NULL,fetched_at TEXT NOT NULL);
     PRAGMA user_version=5; COMMIT;`);
-  db.exec(`BEGIN;
+  if(version<6) db.exec(`BEGIN;
     CREATE TABLE thread_runs(owner TEXT PRIMARY KEY,active INTEGER NOT NULL DEFAULT 0,not_before INTEGER NOT NULL DEFAULT 0);
     CREATE TABLE thread_jobs(book INTEGER PRIMARY KEY REFERENCES bookmarks(seq) ON DELETE CASCADE,
       state TEXT NOT NULL DEFAULT 'waiting',attempts INTEGER NOT NULL DEFAULT 0,ready INTEGER NOT NULL DEFAULT 0,reason TEXT);
     CREATE INDEX thread_jobs_ready ON thread_jobs(state,ready,book);
     ALTER TABLE public_unrolls ADD COLUMN focal TEXT;
     PRAGMA user_version=6; COMMIT;`);
+  db.exec(`BEGIN;
+    ALTER TABLE public_unrolls ADD COLUMN quotes TEXT;
+    ALTER TABLE photos ADD COLUMN post_id TEXT;
+    ALTER TABLE photos ADD COLUMN attachment INTEGER;
+    CREATE UNIQUE INDEX photos_context ON photos(book,post_id,attachment) WHERE post_id IS NOT NULL;
+    ALTER TABLE thread_runs ADD COLUMN paused INTEGER NOT NULL DEFAULT 0;
+    INSERT OR IGNORE INTO dirty SELECT book FROM public_unrolls;
+    INSERT OR IGNORE INTO dirty SELECT seq FROM bookmarks WHERE json_type(content,'$.context')='object';
+    PRAGMA user_version=7; COMMIT;`);
 }
 
 // A long screenshot or post can contribute several results, each traceable to one attachment.
@@ -103,6 +113,7 @@ export function syncText(db: DatabaseSync) {
         const parts=source==='quote'?p.context?.quotes:p.context?.thread;
         parts?.forEach((part,slot)=>passage(source,slot,[part.author,'@'+part.handle,part.body,...part.media.map(m=>m.alt||'')].join(' ')));
       }
+      articleSections(p).forEach((section, slot) => passage('article', slot, section.text));
       reconcileLinks(db,book,p);
       const selected=new Set(threadSelection(db,book).map(p=>p.id));
       const relatedIds=new Set([...(p.context?.quotes||[]),...(p.context?.thread||[])].map(part=>part.id));
@@ -117,6 +128,25 @@ export function syncText(db: DatabaseSync) {
         if (m.type === 'photo' && m.src) {
           slots.add(slot);
           photo.run(book, slot, m.src);
+        }
+      }
+      // Negative job slots keep legacy bookmark media slots intact. The post ID and
+      // attachment position retain the same job when replies are reordered.
+      const stored = db.prepare('SELECT slot,post_id,attachment FROM photos WHERE book=? AND post_id IS NOT NULL').all(book);
+      const existing = new Map(stored.map(r => [r.post_id + '/' + r.attachment, Number(r.slot)]));
+      let nextSlot = Math.min(0, ...existing.values()) - 1;
+      for (const part of [...(p.context?.thread || []), ...(p.context?.quotes || [])]) {
+        for (const [attachment, m] of part.media.entries()) {
+          if (m.type !== 'photo' || !m.src) continue;
+          const key = part.id + '/' + attachment;
+          let slot = existing.get(key);
+          if (slot === undefined) {
+            slot = nextSlot--;
+            existing.set(key, slot);
+            db.prepare('INSERT INTO photos(book,slot,src,post_id,attachment) VALUES(?,?,?,?,?)')
+              .run(book, slot, m.src, part.id, attachment);
+          } else photo.run(book, slot, m.src);
+          slots.add(slot);
         }
       }
       for (const f of db.prepare('SELECT slot,body FROM photos WHERE book=?').all(book)) {
@@ -147,9 +177,9 @@ export function readPost(db: DatabaseSync, owner: string, id: string): ReaderDat
       .all(b.seq)
       .map((m) => Number(m.collection)),
     photos: db
-      .prepare("SELECT slot,body,words FROM photos WHERE book=? AND status='ready'")
+      .prepare("SELECT slot,body,words,post_id,attachment FROM photos WHERE book=? AND status='ready'")
       .all(b.seq)
-      .map((r) => ({ slot: Number(r.slot), text: String(r.body), words: JSON.parse(String(r.words)) }))
+      .map((r) => ({ slot: Number(r.slot), postId: r.post_id ? String(r.post_id) : undefined, attachment: Number(r.attachment ?? r.slot), text: String(r.body), words: JSON.parse(String(r.words)) }))
   };
 }
 

@@ -18,6 +18,7 @@ export interface PostPart {
   parentId?: string;
   parentAuthorId?: string;
   quoteId?: string;
+  article?: { title: string; paragraphs: string[] };
   links?: { url: string; expanded: string }[];
   replyCount?: number;
 }

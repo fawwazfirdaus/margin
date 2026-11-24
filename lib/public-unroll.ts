@@ -50,6 +50,27 @@ function attachments(value: unknown): MediaAttachment[] {
   }
   return result;
 }
+function articleText(value: unknown): PostPart['article'] {
+  const a = obj(value), content = obj(a.content);
+  const title = typeof a.title === 'string' ? a.title.trim() : '';
+  const markdown = new Map<string, string>();
+  for (const entry of Array.isArray(content.entityMap) ? content.entityMap : []) {
+    const entity = obj(obj(entry).value), body = obj(entity.data).markdown;
+    if (entity.type === 'MARKDOWN' && typeof body === 'string') markdown.set(String(obj(entry).key), body);
+  }
+  const paragraphs: string[] = [];
+  for (const block of Array.isArray(content.blocks) ? content.blocks : []) {
+    const b = obj(block);
+    if (typeof b.text === 'string' && b.text.trim()) paragraphs.push(b.text.trim());
+    for (const ref of Array.isArray(b.entityRanges) ? b.entityRanges : []) {
+      const text = markdown.get(String(obj(ref).key));
+      if (text && text !== b.text) paragraphs.push(text);
+    }
+  }
+  if (!paragraphs.length && typeof a.preview_text === 'string' && a.preview_text.trim()) paragraphs.push(a.preview_text.trim());
+  return title || paragraphs.length ? { title, paragraphs } : undefined;
+}
+
 function asPart(value: unknown): PostPart | undefined {
   const p = obj(value),
     author = obj(p.author),
@@ -75,6 +96,8 @@ function asPart(value: unknown): PostPart | undefined {
     date: Number.isFinite(date.getTime()) ? date.toISOString() : '',
     body: p.text,
     media: attachments(p.media),
+    article: articleText(p.article),
+    quoteId: snowflake(obj(p.quote).id) ? String(obj(p.quote).id) : undefined,
     parentId: snowflake(parent) ? parent : undefined
   };
 }
@@ -118,15 +141,31 @@ export async function unrollBookmark(db: DatabaseSync, owner: string, id: string
     id,
     [...nodes.values()].map((p) => ({ id: p.id, authorId: p.authorId!, parentId: p.parentId }))
   ).map((ref) => nodes.get(ref.id)!);
+  const rawPosts = new Map((data.thread || []).map((p: unknown) => [obj(p).id, p] as const));
+  rawPosts.set(id, data.status);
+  const quotes = new Map<string, PostPart>();
+  for (const part of [anchor, ...chain]) {
+    const seen = new Set([id, part.id]);
+    let raw = obj(rawPosts.get(part.id)).quote;
+    while (raw) {
+      const quote = asPart(raw);
+      if (!quote || seen.has(quote.id)) break;
+      seen.add(quote.id);
+      const previous = quotes.get(quote.id);
+      quotes.set(quote.id, { ...quote, quoteId: quote.quoteId ?? previous?.quoteId,
+        article: quote.article ?? previous?.article, media: quote.media.length ? quote.media : previous?.media || [] });
+      raw = obj(raw).quote;
+    }
+  }
   const fetchedAt = new Date().toISOString();
   db.exec('BEGIN');
   try {
     const row = db.prepare('SELECT seq FROM bookmarks WHERE seq=? AND owner=? AND id=?').get(before.seq, owner, id);
     if (!row) throw fail(404, 'Bookmark removed during lookup.');
     db.prepare(
-      `INSERT INTO public_unrolls(book,parts,fetched_at,focal) VALUES(?,?,?,?)
-      ON CONFLICT(book) DO UPDATE SET parts=excluded.parts,fetched_at=excluded.fetched_at,focal=excluded.focal`
-    ).run(row.seq, JSON.stringify(chain), fetchedAt, JSON.stringify(anchor));
+      `INSERT INTO public_unrolls(book,parts,fetched_at,focal,quotes) VALUES(?,?,?,?,?)
+      ON CONFLICT(book) DO UPDATE SET parts=excluded.parts,fetched_at=excluded.fetched_at,focal=excluded.focal,quotes=excluded.quotes`
+    ).run(row.seq, JSON.stringify(chain), fetchedAt, JSON.stringify(anchor), JSON.stringify([...quotes.values()]));
     db.prepare('DELETE FROM thread_jobs WHERE book=?').run(row.seq);
     db.prepare('INSERT OR IGNORE INTO dirty VALUES(?)').run(row.seq);
     db.exec('COMMIT');
@@ -140,20 +179,31 @@ export async function unrollBookmark(db: DatabaseSync, owner: string, id: string
 // Keep a provider refresh separate from X sync and manual selections. Use the same
 // merged ordering for indexing, rendering and resolving citations.
 export function withPublicThread(db: DatabaseSync, book: number, post: Post): Post {
-  const row = db.prepare('SELECT parts,fetched_at,focal FROM public_unrolls WHERE book=?').get(book);
+  const row = db.prepare('SELECT parts,fetched_at,focal,quotes FROM public_unrolls WHERE book=?').get(book);
   if (!row) return post;
   const parts = JSON.parse(String(row.parts)) as PostPart[];
   const focal = row.focal ? JSON.parse(String(row.focal)) as PostPart : undefined;
-  const thread = new Map(parts.map((p) => [p.id, p]));
-  for (const p of post.context?.thread || []) thread.set(p.id, p);
+  const merge = (discovered: PostPart[], saved: PostPart[]) => {
+    const result = new Map(discovered.map(p => [p.id, p]));
+    for (const p of saved) {
+      const extra = result.get(p.id);
+      result.set(p.id, { ...extra, ...p, article: p.article ?? extra?.article, quoteId: p.quoteId ?? extra?.quoteId });
+    }
+    return [...result.values()];
+  };
+  const quotes = merge(JSON.parse(String(row.quotes || '[]')), post.context?.quotes || []);
+  const thread = merge(parts, post.context?.thread || []);
   return {
     ...post,
+    article: post.article ?? focal?.article,
+    quoteId: post.quoteId ?? focal?.quoteId,
+    media: post.media.length ? post.media : focal?.media || [],
     // Timeline imports often saved a shortened or empty caption.
     body: focal && focal.body.length > post.body.length ? focal.body : post.body,
     context: {
       ...post.context,
-      quotes: post.context?.quotes || [],
-      thread: [...thread.values()].sort((a, b) => a.id.length - b.id.length || a.id.localeCompare(b.id)),
+      quotes,
+      thread: thread.sort((a, b) => a.id.length - b.id.length || a.id.localeCompare(b.id)),
       unroll: { related: parts.length, fetchedAt: String(row.fetched_at) }
     }
   };
