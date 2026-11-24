@@ -90,7 +90,7 @@ async function scanBatch(db: DatabaseSync, owner: string, includeShort: boolean,
   let checked = 0,
     indexed = 0,
     paused = false;
-  for (const job of jobs) {
+  async function processJob(job: (typeof jobs)[number]) {
     try {
       const result = await linkPreview(db, owner, String(job.id), String(job.href), transport);
       checked++;
@@ -98,12 +98,14 @@ async function scanBatch(db: DatabaseSync, owner: string, includeShort: boolean,
       if (row?.status === 'indexed') indexed++;
       if (result.kind === 'unavailable' && result.retryable) {
         paused = true;
-        break;
       }
     } catch {
       db.prepare("UPDATE linked_sources SET status='failed' WHERE lid=? AND status='pending'").run(job.lid);
       checked++;
     }
+  }
+  for(let i=0;i<jobs.length&&!paused;i+=3){
+    await Promise.all(jobs.slice(i,i+3).map(processJob));
   }
   return { checked, indexed, remaining: Number(db.prepare('SELECT count(*) n' + scope).get(owner)?.n), paused };
 }
