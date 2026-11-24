@@ -1,10 +1,15 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { syncText } from './index-store.ts';
 
-export const embedModel = process.env.MARGIN_EMBED_MODEL || 'all-minilm';
+import { answerName, dimensions, embeddingName, openAIAnswer, openAIEmbed, validClaims } from './openai.ts';
+
+export const useOpenAI = process.env.MARGIN_AI_PROVIDER === 'openai';
+export const askProvider = useOpenAI ? 'OpenAI · '+answerName : 'Local Ollama';
+export const embedModel = useOpenAI ? 'openai:'+embeddingName+':'+dimensions : process.env.MARGIN_EMBED_MODEL || 'all-minilm';
 const local = 'http://127.0.0.1:11434';
 
 export async function embed(input: string[]): Promise<number[][]> {
+  if(useOpenAI)return openAIEmbed(input);
   const res = await fetch(local + '/api/embed', {
     method: 'POST',
     body: JSON.stringify({ model: embedModel, input }),
@@ -46,8 +51,9 @@ export function indexWorker(db: DatabaseSync) {
         throw e;
       }
       error = '';
-    } catch {
-      error = 'Semantic indexing paused. Check Ollama and the embedding model.';
+    } catch (e) {
+      error = useOpenAI ? 'Semantic indexing paused. '+(e instanceof Error?e.message:'Check OpenAI access.') :
+        'Semantic indexing paused. Check Ollama and the embedding model.';
       retry = Date.now() + 30000;
     } finally {
       busy = false;
@@ -76,8 +82,9 @@ export function indexWorker(db: DatabaseSync) {
   };
 }
 
-export const hostedAvailable = () => Boolean(process.env.MARGIN_OLLAMA_CLOUD_KEY && process.env.MARGIN_CLOUD_MODEL);
+export const hostedAvailable = () => !useOpenAI && Boolean(process.env.MARGIN_OLLAMA_CLOUD_KEY && process.env.MARGIN_CLOUD_MODEL);
 export async function generateAnswer(question: string, passages: string[], hosted: boolean) {
+  if(useOpenAI)return openAIAnswer(question,passages);
   if (hosted && !hostedAvailable()) throw Error('Hosted answers have not been configured.');
   const endpoint = hosted ? 'https://ollama.com/api/chat' : local + '/api/chat';
   const res = await fetch(endpoint, {
@@ -107,16 +114,5 @@ export async function generateAnswer(question: string, passages: string[], hoste
   });
   if (!res.ok) throw Error('Answer model unavailable.');
   const result = (await res.json()) as { message: { content: string } };
-  const parsed = JSON.parse(result.message.content) as { claims?: { text: string; sources: number[] }[] };
-  if (!Array.isArray(parsed.claims)) throw Error('Invalid answer format.');
-  return parsed.claims
-    .slice(0, 8)
-    .filter(
-      (c) =>
-        typeof c?.text === 'string' &&
-        c.text &&
-        Array.isArray(c.sources) &&
-        c.sources.length &&
-        c.sources.every((n) => Number.isInteger(n) && n > 0 && n <= passages.length)
-    );
+  return validClaims(JSON.parse(result.message.content),passages.length);
 }

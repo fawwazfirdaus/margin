@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import type { DatabaseSync } from 'node:sqlite';
 import type { Catalog, Coverage, SearchSpec, WordBox } from '../shared/discovery.ts';
 import { pendingPhotos, readPost, syncText } from './index-store.ts';
-import { embedModel, hostedAvailable, indexWorker } from './models.ts';
+import { askProvider, embedModel, hostedAvailable, indexWorker } from './models.ts';
 import { answer } from './answers.ts';
 import { filters, search } from './search.ts';
 
@@ -98,8 +98,8 @@ export function discovery(db: DatabaseSync, live: boolean) {
         passages: Number(em.n),
         embedded: Number(em.ready),
         modelError: worker?.error() || '',
-        hosted: hostedAvailable()
-      } satisfies Coverage & { hosted: boolean });
+        hosted: hostedAvailable(),embeddingProvider:embedModel,askProvider
+      } satisfies Coverage & { hosted: boolean; embeddingProvider:string; askProvider:string });
     }
     if (post && path === '/api/discover/search') {
       const v = object(await jsonBody(req));

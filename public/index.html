@@ -19,7 +19,7 @@
 </main></div>
 <dialog id="reader"><div class="dialog-head"><p class="eyebrow">Bookmark reader</p><button id="close-reader" aria-label="Close reader">×</button></div><section id="reading"></section></dialog>
 <dialog id="ask"><div class="dialog-head"><h2>Ask your library</h2><button data-close="ask" aria-label="Close Ask">×</button></div><p id="ask-scope" class="muted"></p>
-<form id="ask-form"><label for="question">Your question</label><textarea id="question" required placeholder="What did I save about…?" rows="3"></textarea><label class="choice" id="hosted-label" hidden><input type="checkbox" id="hosted">Send this question and selected excerpts to Ollama Cloud</label><button class="primary" id="ask-submit">Ask</button></form><div id="answer" aria-live="polite"></div></dialog>
+<p id="ask-provider" class="muted"></p><form id="ask-form"><label for="question">Your question</label><textarea id="question" required placeholder="What did I save about…?" rows="3"></textarea><label class="choice" id="hosted-label" hidden><input type="checkbox" id="hosted">Send this question and selected excerpts to Ollama Cloud</label><button class="primary" id="ask-submit">Ask</button></form><div id="answer" aria-live="polite"></div></dialog>
 <dialog id="index"><div class="dialog-head"><h2>Index coverage</h2><button data-close="index" aria-label="Close index coverage">×</button></div>
 <div class="index-row"><b>Semantic passages</b><span id="vectors"></span></div><p class="muted" id="model-note"></p>
 <div class="index-row"><b>Photo text</b><span id="ocr-count"></span></div><p class="muted" id="ocr-detail"></p>

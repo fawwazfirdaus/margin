@@ -179,13 +179,13 @@ async function refresh() {
   await find();
 }
 async function coverage() {
-  const s = await api<Coverage & { hosted: boolean }>('/api/discover/status');
+  const s = await api<Coverage & { hosted: boolean; embeddingProvider:string; askProvider:string }>('/api/discover/status');
   by('vectors').textContent = s.embedded.toLocaleString() + ' / ' + s.passages.toLocaleString();
   by('model-note').textContent =
     s.modelError ||
     (s.embedded < s.passages
-      ? 'Building local embeddings. Keyword search is available.'
-      : 'Local semantic index ready.');
+      ? 'Building embeddings with '+s.embeddingProvider+'. Keyword search is available.'
+      : 'Semantic index ready · '+s.embeddingProvider);
   by('ocr-count').textContent = s.ready + s.empty + ' / ' + s.total;
   by('ocr-detail').textContent =
     s.ready +
@@ -198,6 +198,7 @@ async function coverage() {
     ' pending';
   by('retry-ocr').hidden = !s.failed;
   by('hosted-label').hidden = !s.hosted;
+  by('ask-provider').textContent=s.askProvider.startsWith('OpenAI')?'OpenAI receives this question and retrieved text excerpts. Images stay in browser OCR.':'Answers use Ollama on this Mac.';
 }
 installOCR(coverage);
 by('load-context').onclick=async()=>{
