@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { Answer, SearchSpec } from '../shared/discovery.ts';
 import { generateAnswer, hostedAvailable } from './models.ts';
+import { includeThreadContext } from './thread-evidence.ts';
 import { search } from './search.ts';
 
 export async function answer(
@@ -85,15 +86,15 @@ export async function answer(
   // When asking within a search, only evidence from that result set is eligible.
   const scope = spec.q ? (await search(db, owner, spec, 0, Number.MAX_SAFE_INTEGER, vector)).hits : undefined;
   const scopeIds = scope && new Set(scope.map((h) => h.id));
-  const hits = (
-    await search(db, owner, { q: question, filters: spec.filters }, 0, scopeIds ? Number.MAX_SAFE_INTEGER : 8, vector)
-  ).hits;
-  const citations = hits.filter((h) => !scopeIds || scopeIds.has(h.id)).slice(0, 6);
+  const { hits } = await search(db, owner, { q: question, filters: spec.filters }, 0, 6, vector, {
+    within: scopeIds
+  });
+  const citations = includeThreadContext(db, owner, hits);
   if (!citations.length) return { mode: 'empty', text: 'No supporting passages found in this view.', citations: [] };
   try {
     const claims = await generateAnswer(
       question,
-      citations.map((h) => (h.evidence.author || h.author) + ' · ' + h.evidence.source + ' · ' + h.evidence.text),
+      citations.map((h) => (h.evidence.author || h.author) + ' · bookmark ' + h.id + ' · ' + h.evidence.source + ' ' + (h.evidence.postId || h.id) + ' · ' + h.evidence.text),
       hosted
     );
     if (!claims.length)
