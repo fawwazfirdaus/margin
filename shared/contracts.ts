@@ -23,6 +23,7 @@ export interface PostPart {
 }
 
 export interface PostContext {
+  unroll?: {related:number;fetchedAt:string};
   quotes: PostPart[];
   thread: PostPart[];
   checked?: boolean;

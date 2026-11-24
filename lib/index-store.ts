@@ -1,3 +1,4 @@
+import { withPublicThread } from './public-unroll.ts';
 import { threadSelection } from './free-thread.ts';
 import { reconcileLinks } from './linked-sources.ts';
 import { DatabaseSync } from 'node:sqlite';
@@ -7,8 +8,8 @@ import type { PhotoJob, ReaderData } from '../shared/discovery.ts';
 export function setupIndex(db: DatabaseSync) {
   db.exec('PRAGMA foreign_keys=ON');
   const version = Number(db.prepare('PRAGMA user_version').get()?.user_version);
-  if (version > 4) throw new Error('This library needs a newer version of Margin.');
-  if (version === 4) return;
+  if (version > 5) throw new Error('This library needs a newer version of Margin.');
+  if (version === 5) return;
   if (version === 0)
     db.exec(`BEGIN;
     CREATE TABLE dirty(book INTEGER PRIMARY KEY REFERENCES bookmarks(seq) ON DELETE CASCADE);
@@ -47,12 +48,15 @@ export function setupIndex(db: DatabaseSync) {
     CREATE INDEX linked_pending ON linked_sources(status,book);
     INSERT OR IGNORE INTO dirty SELECT seq FROM bookmarks;
     PRAGMA user_version=3; COMMIT;`);
-  db.exec(`BEGIN;
+  if(version<4) db.exec(`BEGIN;
     ALTER TABLE linked_sources ADD COLUMN outgoing TEXT NOT NULL DEFAULT '[]';
     CREATE TABLE thread_selections(book INTEGER NOT NULL REFERENCES bookmarks(seq) ON DELETE CASCADE,
       target TEXT NOT NULL,url TEXT NOT NULL,position INTEGER NOT NULL,PRIMARY KEY(book,target));
     INSERT OR IGNORE INTO dirty SELECT DISTINCT book FROM linked_sources WHERE body<>'';
     PRAGMA user_version=4; COMMIT;`);
+  db.exec(`BEGIN;
+    CREATE TABLE public_unrolls(book INTEGER PRIMARY KEY REFERENCES bookmarks(seq) ON DELETE CASCADE,parts TEXT NOT NULL,fetched_at TEXT NOT NULL);
+    PRAGMA user_version=5; COMMIT;`);
 }
 
 // A long screenshot or post can contribute several results, each traceable to one attachment.
@@ -78,7 +82,7 @@ export function syncText(db: DatabaseSync) {
   try {
     for (const row of rows) {
       const book = Number(row.seq),
-        p = JSON.parse(String(row.content)) as Post;
+        p = withPublicThread(db, book, JSON.parse(String(row.content)));
       const keys = new Set<string>(),
         slots = new Set<number>();
       function passage(source: string, slot: number, text: string) {
@@ -128,7 +132,7 @@ export function readPost(db: DatabaseSync, owner: string, id: string): ReaderDat
   const b = db.prepare('SELECT * FROM bookmarks WHERE owner=? AND id=?').get(owner, id);
   if (!b) throw Object.assign(new Error('Bookmark not found.'), { status: 404 });
   return {
-    post: { ...JSON.parse(String(b.content)), state: b.state, tags: JSON.parse(String(b.tags)) } as Bookmark,
+    post: { ...withPublicThread(db,Number(b.seq),JSON.parse(String(b.content))), state: b.state, tags: JSON.parse(String(b.tags)) } as Bookmark,
     selectedThread: threadSelection(db,Number(b.seq)),
     linked: db.prepare("SELECT lid AS slot,target AS id,url,author,body FROM linked_sources WHERE book=? AND body<>'' ORDER BY lid").all(b.seq) as unknown as ReaderData['linked'],
     collections: db
