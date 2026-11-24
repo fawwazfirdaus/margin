@@ -10,7 +10,7 @@ interface BookmarkRow {
 
 export function library(path: string) {
   const db = new DatabaseSync(path);
-  db.exec(`PRAGMA journal_mode=WAL;
+  db.exec(`PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL;
     CREATE TABLE IF NOT EXISTS bookmarks (
       seq INTEGER PRIMARY KEY, owner TEXT NOT NULL, id TEXT NOT NULL, content TEXT NOT NULL,
       state TEXT NOT NULL DEFAULT 'inbox', tags TEXT NOT NULL DEFAULT '[]', UNIQUE(owner,id));
