@@ -5,9 +5,11 @@ export function textLinks(text: string): { start: number; raw: string; href: str
     /(?:https?:\/\/|\b(?:www\.)?(?:x\.com|twitter\.com|t\.co)\/)[^\s<>"'\u2026]+/giu
   )) {
     const raw = match[0].replace(/[),.;:!?\]}]+$/u, '');
+    // t.co tokens are alphanumeric. A directly adjacent emoji belongs to the post text.
+    const link = raw.match(/^((?:https?:\/\/)?t\.co\/[a-z0-9]+)(?=\p{Extended_Pictographic})/iu)?.[1] ?? raw;
     try {
-      const u = new URL(/^https?:/i.test(raw) ? raw : 'https://' + raw);
-      if (!u.username && !u.password) links.push({ start: match.index!, raw, href: u.href });
+      const u = new URL(/^https?:/i.test(link) ? link : 'https://' + link);
+      if (!u.username && !u.password) links.push({ start: match.index!, raw: link, href: u.href });
     } catch {
       /* Leave incomplete URLs as ordinary text. */
     }

@@ -139,3 +139,11 @@ test('a preview finishing after its source was removed cannot reinsert evidence'
     lib.db.close();
   }
 });
+
+test('emoji next to a t.co token stays outside the clickable and indexable URL', () => {
+  const body = 'Look https://t.co/abc123⭐️ and another link';
+  const [link] = textLinks(body);
+  assert.equal(link.href, 'https://t.co/abc123');
+  assert.ok(body.slice(link.start + link.raw.length).startsWith('⭐️'));
+  assert.equal(textLinks('https://example.org/abc⭐')[0].raw, 'https://example.org/abc⭐');
+});
