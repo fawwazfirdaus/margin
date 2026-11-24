@@ -1,3 +1,4 @@
+import { installLinkIndex } from './index-links.js';
 import { contextLabel } from './post-context.js';
 import type { AuthorizationResponse, LibraryResponse, SyncResponse } from '../shared/contracts.js';
 import type { Answer, Catalog, Coverage, Filters, Hit, Results, SearchSpec } from '../shared/discovery.js';
@@ -179,7 +180,9 @@ async function refresh() {
   await find();
 }
 async function coverage() {
-  const s = await api<Coverage & { hosted: boolean; embeddingProvider:string; askProvider:string }>('/api/discover/status');
+  const s = await api<Coverage & { links:{total:number;indexed:number;pending:number;failed:number}; hosted: boolean; embeddingProvider:string; askProvider:string }>('/api/discover/status');
+  by('link-coverage').textContent=s.links.indexed+' indexed · '+s.links.pending+' pending · '+s.links.failed+' failed · '+(s.links.total-s.links.indexed-s.links.pending-s.links.failed)+' other or unavailable';
+  by('retry-links').hidden=!s.links.failed;
   by('vectors').textContent = s.embedded.toLocaleString() + ' / ' + s.passages.toLocaleString();
   by('model-note').textContent =
     s.modelError ||
@@ -201,6 +204,7 @@ async function coverage() {
   by('ask-provider').textContent=s.askProvider.startsWith('OpenAI')?'OpenAI receives this question and retrieved text excerpts. Images stay in browser OCR.':'Answers use Ollama on this Mac.';
 }
 installOCR(coverage);
+installLinkIndex(coverage,()=>find());
 by('load-context').onclick=async()=>{
   const btn=by<HTMLButtonElement>('load-context');btn.disabled=true;
   try{

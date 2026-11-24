@@ -4,6 +4,7 @@ import type { Evidence } from '../shared/discovery.js';
 import { el } from './dom.js';
 
 export function contextLabel(e: Evidence) {
+  if (e.source === 'linked') return 'Linked post · '+(e.author||'');
   if (e.source === 'quote') return 'Quoted post · ' + (e.author || '');
   if (e.source === 'thread') return 'Author thread · ' + (e.author || '');
   if (e.source === 'post') return 'Post';

@@ -176,6 +176,16 @@ export function reader(
       details.append(t);
       content.append(details);
     }
+    if(hit.evidence.source==='linked'){
+      const linked=data.linked.find(l=>l.id===hit.evidence.postId);
+      if(linked){
+        const source=el('article','related-post');source.dataset.contextId=linked.id;
+        const text=el('p');text.append(marked(linked.body,hit.terms));
+        const link=el('a','textlink','Open linked post on X ↗');link.href=linked.url;link.target='_blank';link.rel='noopener noreferrer';
+        source.append(el('small','origin','Linked post'),el('b','',linked.author),text,link);
+        content.append(source);
+      }
+    }
     content.append(contextReader(p,hit.terms,account().demo),linkPreviews(p.id,p,hit.terms));
     if (!account().demo)
       content.append(
