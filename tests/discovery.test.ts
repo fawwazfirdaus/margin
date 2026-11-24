@@ -74,6 +74,7 @@ test('account-scoped OCR, collections, saved searches, exact counts, and derived
     assert.equal(r.status, 200);
     return r.json() as Promise<Record<string, any>>;
   };
+  assert.equal((await payload(a,'status')).links.indexed,0);
   const jobs = (await (await call(a, 'jobs')).json()) as { id: string; slot: number; src: string }[];
   const job = jobs.find((j) => j.id === 'sample-4')!;
   const digest = 'a'.repeat(64);
