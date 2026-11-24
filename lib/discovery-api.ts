@@ -1,3 +1,4 @@
+import { localThread,setThreadSelection } from './free-thread.ts';
 import { directLinkWorker, scanLinkedPosts } from './link-preview.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { readFile } from 'node:fs/promises';
@@ -79,6 +80,13 @@ export function discovery(db: DatabaseSync, live: boolean) {
           .map((r) => String(r.value))
       };
       return send(c);
+    }
+    if(post && path==='/api/discover/thread-parts'){
+      const v=object(await jsonBody(req,2_000_000)),id=String(v.id||'');
+      if(!db.prepare('SELECT 1 FROM bookmarks WHERE owner=? AND id=?').get(owner,id))throw fail(404,'Bookmark not found.');
+      if(v.mode==='discover')return send({parts:localThread(db,owner,id,v.replyData)});
+      const parts=setThreadSelection(db,owner,id,v.urls);syncText(db);
+      return send({queued:parts.length});
     }
     if(post && path==='/api/discover/index-links') {
       const v=object(await jsonBody(req));
