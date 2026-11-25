@@ -53,9 +53,10 @@ function attachment(media?: XMedia): MediaAttachment {
   const poster = media.preview_image_url;
   if (media.type === 'photo' && media.url) return {type:'photo', src:media.url, poster, alt};
   if (media.type === 'video' || media.type === 'animated_gif') {
-    const mp4 = media.variants?.filter(v => v.content_type === 'video/mp4')
-      .sort((a,b) => (b.bit_rate || 0) - (a.bit_rate || 0))[0];
-    return {type:media.type, src:mp4?.url, poster, alt};
+    const mp4 = (media.variants || []).filter(v => v.content_type === 'video/mp4' && v.url)
+      .sort((a,b) => (b.bit_rate || 0) - (a.bit_rate || 0));
+    const variants = mp4.flatMap(v => v.bit_rate && v.bit_rate > 0 ? [{src:v.url, bitrate:v.bit_rate}] : []);
+    return {type:media.type, src:mp4[0]?.url, variants:variants.length > 1 ? variants : undefined, poster, alt};
   }
   return {type:'unavailable', poster, alt};
 }

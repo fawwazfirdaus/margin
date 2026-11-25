@@ -1,9 +1,17 @@
 // Shared wire formats for the HTTP server and bookmark reader.
 export type ReviewState = 'inbox' | 'kept' | 'archive';
 
+export interface VideoAttachment {
+  type: 'video' | 'animated_gif';
+  src?: string;
+  variants?: { src: string; bitrate: number }[];
+  poster?: string;
+  alt?: string;
+}
+
 export type MediaAttachment =
   | { type: 'photo'; src: string; alt?: string; poster?: string }
-  | { type: 'video' | 'animated_gif'; src?: string; poster?: string; alt?: string }
+  | VideoAttachment
   | { type: 'unavailable'; poster?: string; alt?: string };
 
 export interface PostPart {
