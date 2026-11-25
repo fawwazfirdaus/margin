@@ -87,6 +87,7 @@ function fillOptions() {
 function card(h: Hit) {
   const b = action('', () => void reading.open(h), 'result');
   b.dataset.post = h.id;
+  if (h.video) reading.bindVideo(b, h.video);
   const left = el('span', 'entry');
   const meta = el('span', 'entry-meta');
   meta.append(
@@ -129,6 +130,7 @@ async function find(append = false) {
     const r = await api<Results>('/api/discover/search', 'POST', { ...spec, offset });
     if (n !== serial) return;
     if (!append) {
+      reading.cancelVideoIntent();
       list = [];
       by('results').replaceChildren();
       by('results').scrollTop = 0;

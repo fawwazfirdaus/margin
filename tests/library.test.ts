@@ -16,15 +16,22 @@ function sessionCookie(response: Response): string {
   return cookie.split(';')[0];
 }
 
-test('media keeps attachment order and selects the highest bitrate playable MP4', () => {
+test('media keeps the original MP4 and exposes bitrate alternatives in descending order', () => {
   const page=normalizePage({data:[{id:'123',attachments:{media_keys:['b','a','z','c','preview']}}],includes:{media:[
     {media_key:'b',type:'photo',url:'photo',alt_text:'Ocean'},
     {media_key:'a',type:'video',preview_image_url:'poster',variants:[
-      {content_type:'video/mp4',bit_rate:500,url:'high'},{content_type:'video/mp4',bit_rate:100,url:'low'}]},
+      {content_type:'video/mp4',bit_rate:100,url:'low'},{content_type:'video/mp4',bit_rate:500,url:'high'},
+      {content_type:'application/x-mpegURL',url:'playlist'}]},
     {media_key:'c',type:'animated_gif',variants:[{content_type:'video/mp4',url:'gif'}]},
     {media_key:'preview',type:'video',preview_image_url:'still'}]}});
   assert.deepEqual(page.posts[0].media.map(m=>'src' in m ? m.src : undefined),['photo','high',undefined,'gif',undefined]);
-  assert.equal(page.posts[0].media[1].poster,'poster');
+  const video = page.posts[0].media[1];
+  assert.equal(video.type,'video');
+  assert.equal(video.poster,'poster');
+  assert.deepEqual(video.variants,[{src:'high',bitrate:500},{src:'low',bitrate:100}]);
+  const gif = page.posts[0].media[3];
+  assert.equal(gif.type,'animated_gif');
+  assert.equal(gif.variants,undefined);
   assert.equal(page.posts[0].media[2].type,'unavailable');
   assert.equal(page.posts[0].media[4].poster,'still');
   assert.throws(()=>normalizePage({errors:[{}]}),/incomplete/);

@@ -1,8 +1,9 @@
 import { articleView, photoFrame, transcript } from './source-media.js';
 import { linkedText, linkPreviews, previewCard } from './linked-post.js';
-import type { Post, PostPart } from '../shared/contracts.js';
+import type { Post, PostPart, VideoAttachment } from '../shared/contracts.js';
 import type { Evidence, Hit, ReaderData } from '../shared/discovery.js';
 import { el } from './dom.js';
+import { originalQuality } from './video.js';
 
 export function contextLabel(e: Evidence) {
   if (e.source === 'article') return 'X Article · ' + (e.author || '');
@@ -15,7 +16,8 @@ export function contextLabel(e: Evidence) {
   return (e.source === 'image' ? 'Text in image ' : 'Alt text · attachment ') + (e.slot + 1);
 }
 
-export function contextReader(post: Post, hit: Hit, photos: ReaderData['photos'], demo: boolean) {
+export function contextReader(post: Post, hit: Hit, photos: ReaderData['photos'], demo: boolean,
+  player: (media: VideoAttachment, id: string) => HTMLVideoElement) {
   const terms = hit.terms;
   const section = el('section', 'post-context');
   const quotes = new Map(post.context?.quotes.map((p) => [p.id, p]));
@@ -42,13 +44,10 @@ export function contextReader(post: Post, hit: Hit, photos: ReaderData['photos']
         block.append(frame);
         if (photo?.text) block.append(transcript(photo, hit));
       } else if (m.type !== 'unavailable' && m.src) {
-        const v = el('video');
-        v.controls = true;
-        v.playsInline = true;
-        v.preload = 'none';
-        v.src = m.src;
-        if (m.poster) v.poster = m.poster;
+        const v = player(m, p.id);
         block.append(v);
+        const original = originalQuality(v);
+        if (original) block.append(original);
       }
     }
     if (!demo) block.append(linkPreviews(post.id,p,terms),link(p.id));

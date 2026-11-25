@@ -5,6 +5,7 @@ import { contextReader } from './post-context.js';
 import type { Catalog, Hit, ReaderData } from '../shared/discovery.js';
 import type { LibraryResponse } from '../shared/contracts.js';
 import { action, api, by, dateText, el, marked, notice, problem } from './dom.js';
+import { originalQuality, releaseVideo, videoLoader } from './video.js';
 
 export function reader(
   account: () => LibraryResponse,
@@ -14,6 +15,7 @@ export function reader(
 ) {
   const dlg = by<HTMLDialogElement>('reader'),
     content = by('reading');
+  const videos = videoLoader();
   let data: ReaderData,
     hit: Hit,
     slot = 0,
@@ -22,18 +24,21 @@ export function reader(
   by('close-reader').onclick = () => dlg.close();
   dlg.addEventListener('close', () => {
     version++;
+    videos.clear();
+    content.querySelectorAll('video').forEach(releaseVideo);
     content.replaceChildren();
     opener?.focus({ preventScroll: true });
   });
   async function open(h: Hit) {
     const n = ++version;
+    videos.opening(h.video);
     try {
       const loaded = await api<ReaderData>('/api/discover/post?id=' + encodeURIComponent(h.id));
       if (n !== version) return;
       data = loaded;
       hit = h;
       slot = h.evidence.postId ? 0 : Math.max(0, h.evidence.slot);
-      draw();
+      draw(h.evidence.postId);
       if (!dlg.open) {
         opener = document.activeElement as HTMLElement;
         dlg.showModal();
@@ -47,6 +52,8 @@ export function reader(
         content.querySelector<HTMLElement>(selector)?.scrollIntoView({block: 'center'});
       }
     } catch (e) {
+      if (n !== version) return;
+      videos.clear();
       problem(e);
     }
   }
@@ -72,8 +79,9 @@ export function reader(
     link.rel = 'noopener';
     return link;
   }
-  function draw() {
+  function draw(contextId?: string) {
     const p = data.post;
+    content.querySelectorAll('video').forEach(releaseVideo);
     content.replaceChildren();
     const byline = el('div', 'byline');
     byline.append(
@@ -88,24 +96,18 @@ export function reader(
     if (p.article) content.append(articleView(p, hit.terms));
     const m = p.media[slot],
       photo = data.photos.find((f) => f.slot === slot);
+    const playable = (m?.type === 'video' || m?.type === 'animated_gif') && m.src;
     if (m) {
       const fig = el('figure', 'figure'),
         frame = el('div', 'image-frame');
       fig.append(frame);
+      let qualityLink;
       if (m.type === 'photo') {
         frame.replaceWith(photoFrame(m, photo, hit));
-      } else if (m.type !== 'unavailable' && m.src) {
-        const v = el('video');
-        v.src = m.src;
-        v.controls = true;
-        v.playsInline = true;
-        v.preload = 'metadata';
-        if (m.poster) v.poster = m.poster;
-        if (m.type === 'animated_gif') {
-          v.loop = true;
-          v.muted = true;
-        }
-        frame.append(v);
+      } else if (playable) {
+        const player = videos.take(m, !contextId);
+        frame.append(player);
+        qualityLink = originalQuality(player);
       } else {
         if (m.poster) {
           const img = el('img');
@@ -119,6 +121,7 @@ export function reader(
       bar.append(
         el('span', '', (m.type === 'photo' ? 'Image' : 'Attachment') + ' ' + (slot + 1) + ' of ' + p.media.length)
       );
+      if (qualityLink) bar.append(qualityLink);
       if (p.media.length > 1) {
         const nav = el('span');
         for (const [label, d] of [
@@ -148,7 +151,12 @@ export function reader(
         content.append(source);
       }
     }
-    content.append(contextReader(p,hit,data.photos,account().demo),linkPreviews(p.id,p,hit.terms));
+    content.append(contextReader(p, hit, data.photos, account().demo, (media, id) => {
+      const selected = id === contextId && (hit.evidence.source === 'quote' || hit.evidence.source === 'thread');
+      if (selected) contextId = undefined;
+      return videos.take(media, selected);
+    }), linkPreviews(p.id, p, hit.terms));
+    videos.clear();
     const activeVersion=version;
     content.append(freeThread(data,hit.terms,async()=>{
       await refresh();
@@ -259,5 +267,5 @@ export function reader(
       content.append(foot);
     }
   }
-  return { open };
+  return { open, bindVideo: videos.bind, cancelVideoIntent: videos.cancelIntent };
 }
