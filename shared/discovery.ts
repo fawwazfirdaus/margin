@@ -1,4 +1,4 @@
-import type { Bookmark, ReviewState } from './contracts.ts';
+import type { Bookmark, ReviewState, VideoAttachment } from './contracts.ts';
 
 export interface Filters {
   state?: ReviewState;
@@ -27,6 +27,7 @@ export interface Hit {
   date: string;
   state: ReviewState;
   preview?: string;
+  video?: Pick<VideoAttachment, 'src' | 'variants'>;
   evidence: Evidence;
   terms: string[];
 }

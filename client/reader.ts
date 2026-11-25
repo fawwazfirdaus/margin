@@ -2,6 +2,7 @@ import { contextReader } from './post-context.js';
 import type { Catalog, Hit, ReaderData } from '../shared/discovery.js';
 import type { LibraryResponse } from '../shared/contracts.js';
 import { action, api, by, dateText, el, marked, notice, problem } from './dom.js';
+import { releaseVideo, videoLoader } from './video.js';
 
 export function reader(
   account: () => LibraryResponse,
@@ -11,6 +12,7 @@ export function reader(
 ) {
   const dlg = by<HTMLDialogElement>('reader'),
     content = by('reading');
+  const videos = videoLoader();
   let data: ReaderData,
     hit: Hit,
     slot = 0,
@@ -19,11 +21,14 @@ export function reader(
   by('close-reader').onclick = () => dlg.close();
   dlg.addEventListener('close', () => {
     version++;
+    videos.clear();
+    releaseVideo(content.querySelector('video'));
     content.replaceChildren();
     opener?.focus({ preventScroll: true });
   });
   async function open(h: Hit) {
     const n = ++version;
+    videos.opening(h.video);
     try {
       const loaded = await api<ReaderData>('/api/discover/post?id=' + encodeURIComponent(h.id));
       if (n !== version) return;
@@ -38,6 +43,8 @@ export function reader(
       dlg.scrollTop = 0;
       if(h.evidence.postId)content.querySelector<HTMLElement>('[data-context-id="'+CSS.escape(h.evidence.postId)+'"]')?.scrollIntoView({block:'center'});
     } catch (e) {
+      if (n !== version) return;
+      videos.clear();
       problem(e);
     }
   }
@@ -65,6 +72,7 @@ export function reader(
   }
   function draw() {
     const p = data.post;
+    releaseVideo(content.querySelector('video'));
     content.replaceChildren();
     const byline = el('div', 'byline');
     byline.append(
@@ -78,6 +86,8 @@ export function reader(
     content.append(body);
     const m = p.media[slot],
       photo = data.photos.find((f) => f.slot === slot);
+    const playable = (m?.type === 'video' || m?.type === 'animated_gif') && m.src;
+    if (!playable) videos.clear();
     if (m) {
       const fig = el('figure', 'figure'),
         frame = el('div', 'image-frame');
@@ -123,18 +133,8 @@ export function reader(
           if (img.complete) paint();
         }
         img.onerror = () => frame.replaceChildren(el('p', 'muted', 'Image unavailable.'));
-      } else if (m.type !== 'unavailable' && m.src) {
-        const v = el('video');
-        v.src = m.src;
-        v.controls = true;
-        v.playsInline = true;
-        v.preload = 'metadata';
-        if (m.poster) v.poster = m.poster;
-        if (m.type === 'animated_gif') {
-          v.loop = true;
-          v.muted = true;
-        }
-        frame.append(v);
+      } else if (playable) {
+        frame.append(videos.take(m));
       } else {
         if (m.poster) {
           const img = el('img');
@@ -148,6 +148,13 @@ export function reader(
       bar.append(
         el('span', '', (m.type === 'photo' ? 'Image' : 'Attachment') + ' ' + (slot + 1) + ' of ' + p.media.length)
       );
+      if (playable && frame.querySelector('video source')) {
+        const original = el('a', 'textlink', 'Original quality ↗');
+        original.href = m.src!;
+        original.target = '_blank';
+        original.rel = 'noopener';
+        bar.append(original);
+      }
       if (p.media.length > 1) {
         const nav = el('span');
         for (const [label, d] of [
@@ -281,5 +288,5 @@ export function reader(
       content.append(foot);
     }
   }
-  return { open };
+  return { open, bindVideo: videos.bind, cancelVideoIntent: videos.cancelIntent };
 }

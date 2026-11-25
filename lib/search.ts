@@ -107,6 +107,8 @@ export async function search(
       m = p.media[0];
     const related=e?.source==='quote'?p.context?.quotes[e.slot]:e?.source==='thread'?p.context?.thread[e.slot]:undefined;
     if(e && related)e={...e,author:related.author,postId:related.id};
+    const selected = related ? related.media.find(m => (m.type === 'video' || m.type === 'animated_gif') && m.src)
+      : p.media[Math.max(0, e?.slot ?? 0)];
     return {
       id: p.id,
       author: p.author,
@@ -114,6 +116,8 @@ export async function search(
       date: p.date,
       state: row.state as Bookmark['state'],
       preview: m?.type === 'photo' ? m.src : m?.poster,
+      video: (selected?.type === 'video' || selected?.type === 'animated_gif') && selected.src
+        ? { src: selected.src, variants: selected.variants } : undefined,
       evidence: e || { source: 'post', slot: -1, text: excerpt(p.body, terms) },
       terms
     };

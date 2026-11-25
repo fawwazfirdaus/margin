@@ -42,6 +42,27 @@ test('hybrid retrieval finds a paraphrase, honors quotes and counts each bookmar
   }
 });
 
+test('video preparation follows the attachment opened by a search result', async () => {
+  const lib = library(':memory:');
+  try {
+    const p = post('1', 'Mixed attachments');
+    p.media = [
+      { type: 'photo', src: '/photo' },
+      { type: 'video', src: '/original', alt: 'winding staircase',
+        variants: [{ src: '/original', bitrate: 500 }, { src: '/small', bitrate: 100 }] }
+    ];
+    lib.savePage('a', [p], '');
+    const hits = async (q: string) => (await search(lib.db, 'a', { q, filters: {} }, 0, 1, none)).hits;
+    assert.equal((await hits(''))[0].video, undefined);
+    const [match] = await hits('staircase');
+    assert.equal(match.evidence.slot, 1);
+    assert.equal(p.media[1].type, 'video');
+    assert.deepEqual(match.video, { src: '/original', variants: p.media[1].variants });
+  } finally {
+    lib.db.close();
+  }
+});
+
 test('account-scoped OCR, collections, saved searches, exact counts, and derived-data cleanup', async (t) => {
   const lib = library(':memory:'),
     db = lib.db,

@@ -54,7 +54,7 @@ Choose **Remove from X…** on the post. The first use requests the additional O
 
 - The database is `data/margin.sqlite`. Set `MARGIN_DATA_DIR` to change its location. To back it up, stop the server and copy the entire data directory.
 - Each connected X account has a separate library. Access tokens live in server memory. Reconnect after a server restart or token expiry to make further X API calls. An existing signed-in session can still review stored posts.
-- Media streams while its source is available. An unavailable attachment links to the original post.
+- Videos stream directly from X. Margin prepares one clip on sustained hover or keyboard focus and buffers it when opened. On connections reporting Data Saver or 2G, loading waits for Play. New imports retain available MP4 bitrates so the reader can choose a smaller stream. **Original quality** opens the full-resolution MP4 when a smaller stream is selected. Previously saved clips use their existing URL. An unavailable attachment links to the original post.
 - The server listens on the Mac or PC's loopback interface, using port 4173 by default. For phone access, put the same instance behind a private HTTPS reverse proxy, set `MARGIN_ORIGIN` to the HTTPS origin, preserve its Host header, and register its `/auth/callback` URL with X.
 
 ## Development
